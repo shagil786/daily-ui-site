@@ -34,6 +34,24 @@ const DEFAULT_DB_FILE = "./data/days.db";
 
 const connections = new Map<string, Database.Database>();
 
+/**
+ * Test-only override installed by `setDbForTesting`. Production code never
+ * sets it; tests inject a seeded in-memory database so route handlers (which
+ * call `getDb()` with no arguments) read/write that instance.
+ */
+let testOverride: Database.Database | undefined;
+
+/**
+ * Seam for tests only (used by `tests/unit/api.test.ts`): while a db is set,
+ * every `getDb()` call returns it; `setDbForTesting(undefined)` clears the
+ * override and restores the normal memoized-per-path behavior below.
+ *
+ * Production code must never call this.
+ */
+export function setDbForTesting(db: Database.Database | undefined): void {
+  testOverride = db;
+}
+
 function createConnection(file: string): Database.Database {
   if (file !== ":memory:") {
     fs.mkdirSync(dirname(resolve(file)), { recursive: true });
@@ -47,7 +65,9 @@ function createConnection(file: string): Database.Database {
  * Opens the database, memoized per path.
  *
  * Path resolution: explicit `path` wins, else env `DATABASE_PATH`, else
- * `./data/days.db`. The parent directory is created on first open.
+ * `./data/days.db`. The parent directory is created on first open. While a
+ * test override is installed (see `setDbForTesting`), it wins over all of
+ * this.
  *
  * `":memory:"` is deliberately NOT memoized: an in-memory database lives only
  * as long as its connection, so sharing one memo entry across callers would
@@ -55,6 +75,9 @@ function createConnection(file: string): Database.Database {
  * need the same instance (tests rely on getting a fresh, isolated database).
  */
 export function getDb(path?: string): Database.Database {
+  if (testOverride !== undefined) {
+    return testOverride;
+  }
   const envPath = process.env.DATABASE_PATH;
   const file = path !== undefined ? path : envPath || DEFAULT_DB_FILE;
   if (file === ":memory:") {
