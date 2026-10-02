@@ -83,8 +83,18 @@ async function injectDb(): Promise<{ db: DbModule; handle: Database.Database }> 
 async function loadToday() {
   vi.resetModules();
   const route = await import("../../app/api/today/route");
+  // Same provider-mock hygiene as loadGenerate: the shared createProvider mock
+  // survives resetModules, so re-prime it to the REAL implementation per load —
+  // the today route's spec §6 attempt must start from a clean slate (spec §6).
+  const providerModule = await import("../../lib/llm/provider");
+  const actual = await vi.importActual<typeof import("../../lib/llm/provider")>(
+    "../../lib/llm/provider",
+  );
+  const createProvider = vi.mocked(providerModule.createProvider);
+  createProvider.mockClear();
+  createProvider.mockImplementation(actual.createProvider);
   const { db, handle } = await injectDb();
-  return { route, db, handle };
+  return { route, db, handle, createProvider };
 }
 
 async function loadArchive() {
@@ -252,6 +262,85 @@ describe("GET /api/today", () => {
     if (localDay !== utcDay) {
       expect(body.title).toBe("Local day");
     }
+  });
+
+  // ── spec §6: one server-side generation attempt on a miss ────────────────
+
+  it("today missing + attempt succeeds → 200 with the fresh today doc, row stored (spec §6)", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    const { route, db, handle, createProvider } = await loadToday();
+    const today = localToday();
+    createProvider.mockReturnValue({ generate: async () => JSON.stringify(doc(today)) });
+
+    const res = await route.GET(get());
+
+    expect(res.status).toBe(200);
+    expect((await jsonOf<UiDocument>(res)).date).toBe(today);
+    // env wiring: the attempt uses only server-held LLM_* credentials
+    expect(createProvider).toHaveBeenCalledWith("openai", "test-key");
+    expect(db.getDay(handle, today)).toBeDefined();
+  });
+
+  it("today missing + attempt fails + older row exists → 200 latest doc (no new error code)", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    const { route, db, handle, createProvider } = await loadToday();
+    seed(db, handle, "2026-09-01", { title: "Old page" });
+    createProvider.mockReturnValue({ generate: async () => "not json at all" });
+
+    const res = await route.GET(get());
+
+    expect(res.status).toBe(200);
+    expect((await jsonOf<UiDocument>(res)).title).toBe("Old page");
+  });
+
+  it("empty db + attempt fails → 404 {error:'no-ui'}, never a new error code (plan edge case #30)", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    const { route, createProvider } = await loadToday();
+    createProvider.mockReturnValue({ generate: async () => "junk" });
+
+    const res = await route.GET(get());
+
+    expect(res.status).toBe(404);
+    expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "no-ui" });
+    expect(createProvider).toHaveBeenCalled(); // the attempt was actually made
+  });
+
+  it("LLM env missing → attempt short-circuits (provider never created), existing shapes preserved", async () => {
+    // beforeEach deletes LLM_PROVIDER/LLM_API_KEY — the e2e forced-empty env case
+    const { route, createProvider } = await loadToday();
+
+    const res = await route.GET(get());
+
+    expect(res.status).toBe(404);
+    expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "no-ui" });
+    expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it("corrupt today row treated as a miss → attempt repairs it → 200 (spec §6)", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    const { route, db, handle, createProvider } = await loadToday();
+    const today = localToday();
+    seed(db, handle, today, { json: "{broken json" });
+    createProvider.mockReturnValue({ generate: async () => JSON.stringify(doc(today)) });
+
+    const res = await route.GET(get());
+
+    expect(res.status).toBe(200);
+    expect((await jsonOf<UiDocument>(res)).date).toBe(today);
+  });
+
+  it("corrupt today row + attempt unavailable → 500 {error:'corrupt'} (shape preserved)", async () => {
+    const { route, db, handle } = await loadToday();
+    seed(db, handle, localToday(), { json: "{broken json" });
+
+    const res = await route.GET(get());
+
+    expect(res.status).toBe(500);
+    expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "corrupt" });
   });
 });
 

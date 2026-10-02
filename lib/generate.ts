@@ -2,7 +2,7 @@ import type Database from "better-sqlite3";
 import { getLatestDay, upsertDay } from "./db";
 import { pickDirective, type Directive } from "./directives";
 import { extractJson } from "./llm/extract";
-import type { LlmProvider } from "./llm/provider";
+import { createProvider, type LlmProvider, type LlmProviderName } from "./llm/provider";
 import { inventoryForPrompt } from "./registry";
 import { LIMITS, type UiDocument } from "./schema";
 import { validateDocument } from "./validate";
@@ -159,4 +159,53 @@ export async function generateDay(deps: GenerateDeps, date: string): Promise<Gen
   const doc = decodeFallback(prior.json, date);
   upsertDay(db, { date, json: JSON.stringify(doc), directive: directive.id, stale: true });
   return { doc, stale: true, directive: directive.id };
+}
+
+/** One render-triggered generation attempt per date per 10 minutes. */
+const RENDER_ATTEMPT_COOLDOWN_MS = 10 * 60 * 1000;
+
+/** In-memory, per-process: date → epoch ms of the last render-triggered attempt. */
+const lastRenderAttemptByDate = new Map<string, number>();
+
+/**
+ * Spec §6: the ONE server-side generation attempt made when a render (today
+ * page or GET /api/today) has no usable row for `date`.
+ *
+ * - Server-held env only: `LLM_PROVIDER`/`LLM_API_KEY` missing or empty →
+ *   null immediately (no attempt, no cooldown entry). `GENERATE_SECRET` is the
+ *   client-facing POST credential and is never read here.
+ * - Cooldown: a second attempt for the same date within 10 minutes returns
+ *   null WITHOUT creating a provider — repeated renders cannot hammer the LLM
+ *   (mirrors the POST route's rate limit; `generateDay` itself already makes
+ *   exactly one repair attempt internally).
+ * - Otherwise: build the provider from env and run `generateDay`. Any failure
+ *   (config throw, `GenerationError`) → null. NEVER throws, and the API key
+ *   is passed through, never logged.
+ */
+export async function attemptRenderGeneration(
+  db: Database.Database,
+  date: string,
+): Promise<GenerateResult | null> {
+  const providerName = process.env.LLM_PROVIDER;
+  const apiKey = process.env.LLM_API_KEY;
+  if (providerName === undefined || providerName.length === 0) {
+    return null;
+  }
+  if (apiKey === undefined || apiKey.length === 0) {
+    return null;
+  }
+
+  const now = Date.now();
+  const last = lastRenderAttemptByDate.get(date);
+  if (last !== undefined && now - last < RENDER_ATTEMPT_COOLDOWN_MS) {
+    return null;
+  }
+  lastRenderAttemptByDate.set(date, now);
+
+  try {
+    const provider = createProvider(providerName as LlmProviderName, apiKey);
+    return await generateDay({ provider, db }, date);
+  } catch {
+    return null;
+  }
 }
