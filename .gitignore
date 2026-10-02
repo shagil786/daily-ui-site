@@ -46,3 +46,4 @@ data/
 *.db
 test-results/
 playwright-report/
+tests/e2e/.tmp/
