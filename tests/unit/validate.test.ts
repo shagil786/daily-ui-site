@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { Node, Theme, UiDocument } from "../../lib/schema";
+import { uiDocumentSchema, type Node, type Theme, type UiDocument } from "../../lib/schema";
 import { validateDocument } from "../../lib/validate";
 
 const validTheme: Theme = {
@@ -140,10 +140,13 @@ describe("validateDocument", () => {
     }
   });
 
-  // Carried ruling 1: never-throws for adversarially deep input — a >5000-deep
-  // raw tree must come back ok:false, never a RangeError from Zod's recursion.
+  // Carried ruling 1: never-throws for adversarially deep input — both halves
+  // pinned. Raw Zod recursion overflows the stack (RangeError), and the gate
+  // must turn the same input into ok:false. If a future zod/node change makes
+  // deep parses graceful, the first assertion fails visibly.
   it("returns ok:false for a >5000-deep raw input instead of RangeError", () => {
     const deep = makeDoc(makeChain(5001));
+    expect(() => uiDocumentSchema.safeParse(deep)).toThrow(RangeError);
     expect(() => validateDocument(deep)).not.toThrow();
     const result = validateDocument(deep);
     expect(result.ok).toBe(false);
@@ -222,6 +225,32 @@ describe("validateDocument", () => {
     expect(result.ok).toBe(false);
     if (!result.ok) {
       expect(result.errors.join(" ")).toContain("hostile getter");
+    }
+  });
+
+  // Never-throws hardening: exceptionText must survive String()/toString()
+  // throwing while building the failure message.
+  it("never throws on an object with a hostile toString()", () => {
+    const hostile = {
+      toString(): string {
+        throw new Error("toString boom");
+      },
+    };
+
+    // As raw input the schema failure is graceful — no stringification needed.
+    const asInput = validateDocument(hostile);
+    expect(asInput.ok).toBe(false);
+
+    // As the thrown value the catch handler must fall back, not propagate.
+    const raw = {
+      get root(): unknown {
+        throw hostile;
+      },
+    };
+    const asThrown = validateDocument(raw);
+    expect(asThrown.ok).toBe(false);
+    if (!asThrown.ok) {
+      expect(asThrown.errors.join(" ")).toContain("unknown validation failure");
     }
   });
 });

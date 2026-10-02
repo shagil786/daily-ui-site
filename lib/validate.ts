@@ -26,7 +26,14 @@ function issueText(issue: z.core.$ZodIssue): string {
 }
 
 function exceptionText(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  // Doubly-hostile input: String() on a non-Error can throw, and an Error's
+  // `message` getter can be overridden to throw — both must degrade to a
+  // static string so the catch handler itself can never throw.
+  try {
+    return err instanceof Error ? err.message : String(err);
+  } catch {
+    return "unknown validation failure";
+  }
 }
 
 /**
