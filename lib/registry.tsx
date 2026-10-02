@@ -32,6 +32,26 @@ import {
   terminalSimPropsSchema,
   textPropsSchema,
 } from "./components/content";
+import {
+  Accordion,
+  CanvasNoise,
+  Clicker,
+  Clock,
+  Counter,
+  Marquee,
+  Poll,
+  ProgressBar,
+  Todo,
+  accordionPropsSchema,
+  canvasNoisePropsSchema,
+  clickerPropsSchema,
+  clockPropsSchema,
+  counterPropsSchema,
+  marqueePropsSchema,
+  pollPropsSchema,
+  progressBarPropsSchema,
+  todoPropsSchema,
+} from "./components/interactive";
 
 export type ComponentEntry = {
   propsSchema: z.ZodTypeAny;
@@ -63,6 +83,16 @@ export const registry: Record<string, ComponentEntry> = {
   LinkList: { propsSchema: linkListPropsSchema, Component: LinkList },
   BeforeAfter: { propsSchema: beforeAfterPropsSchema, Component: BeforeAfter },
   TerminalSim: { propsSchema: terminalSimPropsSchema, Component: TerminalSim },
+  // Interactive (Task 5)
+  Counter: { propsSchema: counterPropsSchema, Component: Counter },
+  Todo: { propsSchema: todoPropsSchema, Component: Todo },
+  Poll: { propsSchema: pollPropsSchema, Component: Poll },
+  Clock: { propsSchema: clockPropsSchema, Component: Clock },
+  Clicker: { propsSchema: clickerPropsSchema, Component: Clicker },
+  Marquee: { propsSchema: marqueePropsSchema, Component: Marquee },
+  CanvasNoise: { propsSchema: canvasNoisePropsSchema, Component: CanvasNoise },
+  ProgressBar: { propsSchema: progressBarPropsSchema, Component: ProgressBar },
+  Accordion: { propsSchema: accordionPropsSchema, Component: Accordion },
 };
 
 /** Look up an entry by `Node.componentType`; unknown types yield `undefined` (never throws). */
