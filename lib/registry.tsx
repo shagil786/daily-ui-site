@@ -16,6 +16,22 @@ import {
   tabsPropsSchema,
   timelinePropsSchema,
 } from "./components/layout";
+import {
+  BeforeAfter,
+  Card,
+  Hero,
+  ImageGallery,
+  LinkList,
+  TerminalSim,
+  Text,
+  beforeAfterPropsSchema,
+  cardPropsSchema,
+  heroPropsSchema,
+  imageGalleryPropsSchema,
+  linkListPropsSchema,
+  terminalSimPropsSchema,
+  textPropsSchema,
+} from "./components/content";
 
 export type ComponentEntry = {
   propsSchema: z.ZodTypeAny;
@@ -39,6 +55,14 @@ export const registry: Record<string, ComponentEntry> = {
   SplitPane: { propsSchema: splitPanePropsSchema, Component: SplitPane },
   Tabs: { propsSchema: tabsPropsSchema, Component: Tabs },
   Timeline: { propsSchema: timelinePropsSchema, Component: Timeline },
+  // Content (Task 4)
+  Hero: { propsSchema: heroPropsSchema, Component: Hero },
+  Text: { propsSchema: textPropsSchema, Component: Text },
+  Card: { propsSchema: cardPropsSchema, Component: Card },
+  ImageGallery: { propsSchema: imageGalleryPropsSchema, Component: ImageGallery },
+  LinkList: { propsSchema: linkListPropsSchema, Component: LinkList },
+  BeforeAfter: { propsSchema: beforeAfterPropsSchema, Component: BeforeAfter },
+  TerminalSim: { propsSchema: terminalSimPropsSchema, Component: TerminalSim },
 };
 
 /** Look up an entry by `Node.componentType`; unknown types yield `undefined` (never throws). */
