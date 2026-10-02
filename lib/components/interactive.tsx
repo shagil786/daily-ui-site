@@ -312,12 +312,18 @@ export function Marquee({ text, speed = 6 }: MarqueeProps) {
   const durationSeconds = 30 / speed;
   return (
     <div
+      data-marquee=""
       style={{
         overflow: "hidden",
         width: "100%",
         padding: "8px 0",
         border: "1px solid rgba(127, 127, 127, 0.35)",
         borderRadius: 8,
+        // Size container for the copies' `min-width: 100cqw` below: each copy
+        // fills the container (not its shrink-wrapped text), so the row always
+        // spans two full viewports and -50% lands exactly on one unit — no
+        // empty right-hand dead zone, no mid-container pop at the loop wrap.
+        containerType: "inline-size",
       }}
     >
       <style>{MARQUEE_KEYFRAMES}</style>
@@ -331,10 +337,12 @@ export function Marquee({ text, speed = 6 }: MarqueeProps) {
           animation: `marquee-scroll ${durationSeconds}s linear infinite`,
         }}
       >
-        <span style={{ fontSize: "15px", color: "var(--fg, #111111)" }}>{text}</span>
-        <span aria-hidden="true" style={{ fontSize: "15px", color: "var(--fg, #111111)" }}>
-          {text}
-        </span>
+        <div data-marquee-copy="" style={{ minWidth: "100cqw" }}>
+          <span style={{ fontSize: "15px", color: "var(--fg, #111111)" }}>{text}</span>
+        </div>
+        <div data-marquee-copy="" aria-hidden="true" style={{ minWidth: "100cqw" }}>
+          <span style={{ fontSize: "15px", color: "var(--fg, #111111)" }}>{text}</span>
+        </div>
       </div>
     </div>
   );

@@ -24,6 +24,7 @@ import { getComponent, inventoryForPrompt } from "../../lib/registry";
 
 afterEach(() => {
   cleanup();
+  vi.restoreAllMocks();
   vi.useRealTimers();
 });
 
@@ -218,6 +219,17 @@ describe("Marquee", () => {
     expect(rowStyle).toContain("marquee-scroll");
   });
 
+  it("sizes each copy to at least the container so the row fills it (no dead zone)", () => {
+    const { container } = render(<Marquee text="tiny" />);
+    const outer = container.querySelector("[data-marquee]");
+    expect(outer?.getAttribute("style") ?? "").toContain("container-type: inline-size");
+    const copies = container.querySelectorAll("[data-marquee-copy]");
+    expect(copies).toHaveLength(2);
+    for (const copy of copies) {
+      expect(copy.getAttribute("style") ?? "").toContain("min-width: 100cqw");
+    }
+  });
+
   it("requires a text string and bounds speed", () => {
     expect(marqueePropsSchema.safeParse({ text: "hi" }).success).toBe(true);
     expect(marqueePropsSchema.safeParse({ text: "hi", speed: 4 }).success).toBe(true);
@@ -229,13 +241,41 @@ describe("Marquee", () => {
 });
 
 describe("CanvasNoise", () => {
+  beforeEach(() => {
+    // jsdom's real getContext logs "Not implemented" on every call; mock it to
+    // return exactly what jsdom would (null) so the run stays pristine while
+    // the component's guard is still exercised for real.
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue(null);
+  });
+
   it("renders <canvas> without throwing when getContext is null (jsdom)", () => {
     const { container } = render(<CanvasNoise opacity={0.4} />);
     expect(container.querySelector("canvas")).not.toBeNull();
-    // jsdom has no 2d context: the component must bail to its static gradient.
+    // No 2d context: the component must bail to its static gradient.
     expect(container.querySelector("[data-noise-fallback]")?.getAttribute("data-noise-fallback")).toBe(
       "true",
     );
+  });
+
+  it("schedules one animation frame with a 2d context and cancels it on unmount", () => {
+    vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({
+      fillStyle: "",
+      clearRect: vi.fn(),
+      fillRect: vi.fn(),
+    } as unknown as CanvasRenderingContext2D);
+    const requestSpy = vi.spyOn(globalThis, "requestAnimationFrame").mockReturnValue(1);
+    const cancelSpy = vi
+      .spyOn(globalThis, "cancelAnimationFrame")
+      .mockImplementation(() => undefined);
+
+    const { container, unmount } = render(<CanvasNoise />);
+    expect(container.querySelector("[data-noise-fallback]")?.getAttribute("data-noise-fallback")).toBe(
+      "false",
+    );
+    expect(requestSpy).toHaveBeenCalledTimes(1);
+
+    unmount();
+    expect(cancelSpy).toHaveBeenCalledWith(1);
   });
 
   it("bounds opacity to 0-1", () => {
