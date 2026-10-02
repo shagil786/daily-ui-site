@@ -47,3 +47,207 @@ a {
     color-scheme: dark;
   }
 }
+
+/* ── Theme document wrapper (Task 12) ─────────────────────────────────── */
+
+/* Wrapper div carries --bg/--fg/--accent (set inline by the page); Next
+   forbids mutating <html> server-side, so the theme lives here. */
+.theme-root {
+  background: var(--bg);
+  color: var(--fg);
+  min-height: 100vh;
+}
+
+/* Font families for theme.font: CSS fallback stacks only — zero external
+   font fetches (no @font-face, no CDN, no network at render time). */
+.font-serif {
+  font-family: Georgia, "Times New Roman", Times, serif;
+}
+
+.font-sans {
+  font-family: system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial,
+    sans-serif;
+}
+
+.font-mono {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono",
+    monospace;
+}
+
+.font-display {
+  font-family: "Palatino Linotype", Palatino, Georgia, "Book Antiqua", serif;
+}
+
+/* Document body: clears the fixed corner badges and keeps content to a
+   readable measure without imposing a grid on generated layouts. */
+.doc-body {
+  max-width: 1120px;
+  margin: 0 auto;
+  padding: 72px 24px 56px;
+}
+
+/* ── Corner badges ────────────────────────────────────────────────────── */
+
+.corner-badges {
+  position: fixed;
+  top: 12px;
+  right: 12px;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  /* worst case (stale + recent + date + archive) wraps instead of clipping
+     off the left edge on narrow viewports */
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  max-width: calc(100vw - 24px);
+  gap: 6px;
+  /* badges stay legible regardless of the generated theme font */
+  font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+}
+
+/* Chips use the theme's own fg/bg pair so they contrast on any palette. */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border: 1px solid var(--fg, #111111);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg, #111111);
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: nowrap;
+}
+
+.badge-date {
+  background: var(--fg, #111111);
+  color: var(--bg, #ffffff);
+}
+
+.badge-link {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* ── Empty state / 404 ────────────────────────────────────────────────── */
+
+.empty-state {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 24px;
+  text-align: center;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.empty-state p {
+  font-size: 1.125rem;
+}
+
+.empty-state a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-size: 14px;
+}
+
+/* ── Archive list ─────────────────────────────────────────────────────── */
+
+.archive-page {
+  max-width: 800px;
+  margin: 0 auto;
+  padding: 48px 24px 64px;
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+  background: var(--background);
+  color: var(--foreground);
+}
+
+.archive-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.archive-header h1 {
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 800;
+}
+
+.archive-header a {
+  color: var(--foreground);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  font-size: 14px;
+}
+
+.archive-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.archive-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 14px 16px;
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 10px;
+}
+
+.archive-row:hover {
+  border-color: var(--foreground);
+}
+
+.archive-row-link {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.archive-date {
+  flex-shrink: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 13px;
+  font-weight: 600;
+  opacity: 0.75;
+}
+
+/* text preview of the title (no thumbnails — out of scope) */
+.archive-title {
+  font-size: 15px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.archive-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.archive-directive {
+  font-size: 12px;
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 180px;
+}

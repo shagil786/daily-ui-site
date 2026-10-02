@@ -162,8 +162,12 @@ export function Tabs({ tabs, children }: TabsProps) {
               borderRadius: 6,
               fontSize: "14px",
               fontWeight: 600,
+              // White on a possibly-light --accent: a soft dark shadow keeps
+              // the active label legible when the accent is pale (ruling 7).
               color: index === 0 ? "#ffffff" : "var(--fg, #111111)",
               background: index === 0 ? "var(--accent, #2563eb)" : "transparent",
+              textShadow:
+                index === 0 ? "0 1px 2px rgba(0, 0, 0, 0.6)" : undefined,
             }}
           >
             {tab.label}

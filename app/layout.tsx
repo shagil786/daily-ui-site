@@ -1,18 +1,15 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
 import type { ReactNode } from "react";
 import "./globals.css";
 
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
-
+/**
+ * Site-wide fallback metadata. Individual pages override `title` (and add a
+ * row-date description) via their own `metadata` / `generateMetadata` exports —
+ * the document title comes from `doc.title`, never from `doc.date`.
+ *
+ * No `next/font/google`: the theme ruling is zero external font fetches, so
+ * fonts are CSS fallback stacks declared in globals.css (`.font-serif` etc.).
+ */
 export const metadata: Metadata = {
   title: "Daily UI Site",
   description: "A new randomly generated UI, every day.",
@@ -20,7 +17,7 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
-    <html lang="en" className={`${geistSans.variable} ${geistMono.variable}`}>
+    <html lang="en">
       <body>{children}</body>
     </html>
   );

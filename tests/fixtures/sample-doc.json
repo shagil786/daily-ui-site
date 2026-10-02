@@ -1,0 +1,105 @@
+{
+  "version": 1,
+  "date": "2026-10-02",
+  "title": "Coastal Dispatch",
+  "theme": {
+    "bg": "#f7f3ec",
+    "fg": "#1d1a15",
+    "accent": "#a34a28",
+    "font": "serif",
+    "dark": false
+  },
+  "root": {
+    "id": "root",
+    "componentType": "Stack",
+    "props": { "gap": 40 },
+    "children": [
+      {
+        "id": "hero",
+        "componentType": "Hero",
+        "props": {
+          "heading": "Coastal Dispatch",
+          "sub": "Field notes from the harbour, generated fresh each morning."
+        }
+      },
+      {
+        "id": "section-glance",
+        "componentType": "Section",
+        "props": { "heading": "Today at a glance" },
+        "children": [
+          {
+            "id": "progress",
+            "componentType": "ProgressBar",
+            "props": { "value": 62 }
+          },
+          {
+            "id": "text-glance",
+            "componentType": "Text",
+            "props": {
+              "text": "Sixty-two percent of the week's tasks are done, the ferry is running on time, and the market opens at seven.",
+              "size": "md"
+            }
+          }
+        ]
+      },
+      {
+        "id": "section-notes",
+        "componentType": "Section",
+        "props": { "heading": "Notes" },
+        "children": [
+          {
+            "id": "card-tide",
+            "componentType": "Card",
+            "props": {
+              "title": "Tide tables",
+              "body": "High water at 06:12 and 18:41. The north wall is passable an hour either side of low tide."
+            }
+          },
+          {
+            "id": "card-market",
+            "componentType": "Card",
+            "props": {
+              "title": "Market day",
+              "body": "The Wednesday market moves under the arcade when it rains. Bring a basket; stalls stop handing out bags."
+            }
+          }
+        ]
+      },
+      {
+        "id": "section-links",
+        "componentType": "Section",
+        "props": { "heading": "Reading list" },
+        "children": [
+          {
+            "id": "links",
+            "componentType": "LinkList",
+            "props": {
+              "links": [
+                { "label": "Harbour bulletin", "href": "https://example.com/bulletin" },
+                { "label": "Ferry timetables", "href": "https://example.com/ferries" }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "section-week",
+        "componentType": "Section",
+        "props": { "heading": "Week ahead" },
+        "children": [
+          {
+            "id": "timeline",
+            "componentType": "Timeline",
+            "props": {
+              "events": [
+                { "date": "Mon", "text": "Lifeboat drill at the station, 19:00." },
+                { "date": "Wed", "text": "Market under the arcade, rain or shine." },
+                { "date": "Fri", "text": "Ferry timetable changes take effect." }
+              ]
+            }
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,6 +1,17 @@
+"use client";
+
 import React, { type ReactNode } from "react";
 import { getComponent } from "./registry";
 import type { Node } from "./schema";
+
+/**
+ * Client boundary: `NodeErrorBoundary` extends `React.Component`, which the
+ * `react-server` export condition does not provide — importing this module
+ * from a Server Component page crashes at module evaluation (next build).
+ * Pages stay server components and pass `node` as plain JSON across the
+ * boundary; SSR still emits the full markup (this directive only switches the
+ * React runtime for hydration, it does not opt the page out of streaming).
+ */
 
 type NodeErrorBoundaryProps = { children: ReactNode };
 type NodeErrorBoundaryState = { hasError: boolean };
