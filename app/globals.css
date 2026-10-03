@@ -146,6 +146,26 @@ a {
   color: #52525b;
 }
 
+/*
+ * Preview chips get their own class rather than reusing `.badge-recent`:
+ * "recent" already means "showing most recent" on the daily page, so sharing
+ * it would let a later style edit restyle the wrong chip.
+ *
+ * The FOREGROUND is deliberately left to `.badge` (`color: var(--fg, #111111)`):
+ * this chip renders inside `ThemeSurface`, whose `--fg` comes from the
+ * GENERATED document's theme, so any hardcoded colour here would override the
+ * theme pair the file's own comment promises and can land at ~2:1 on a dark
+ * theme. A neutral translucent tint is the rest of the chip — it reads as a
+ * distinct, neutral "this is a preview" marker in BOTH colour schemes without
+ * a `prefers-color-scheme` entry, and it is not the amber "yesterday's"
+ * warning. Zinc, as in `.badge-recent` but solid-filled rather than dashed.
+ */
+.badge-preview {
+  border-color: rgba(113, 113, 122, 0.55);
+  background: rgba(113, 113, 122, 0.16);
+  flex-shrink: 0;
+}
+
 @media (prefers-color-scheme: dark) {
   .badge-stale {
     border-color: rgba(251, 191, 36, 0.5);
@@ -184,6 +204,20 @@ a {
   text-decoration: underline;
   text-underline-offset: 2px;
   font-size: 14px;
+}
+
+/*
+ * Empty state + preview box: `.empty-state`'s own full-viewport height would put
+ * the site's only interactive affordance a whole screen below a message that
+ * says nothing has been generated yet, so the pair shares the first viewport.
+ * Scoped to this pairing on purpose — a POPULATED page keeps `.theme-root`'s
+ * full-height daily document by design, and the disclosure below it is an
+ * accepted discoverability limit.
+ */
+.empty-state:has(+ .preview-box) {
+  min-height: 0;
+  padding-top: 96px;
+  padding-bottom: 24px;
 }
 
 /* ── Archive list ─────────────────────────────────────────────────────── */
@@ -300,5 +334,199 @@ a {
 
   .archive-directive {
     max-width: 45vw;
+  }
+}
+
+/* ── Visitor preview box ("describe your own UI") ───────────────────────── */
+
+/* Sits below the day's document area (and below the full-height empty state),
+   so it is centered in its own strip rather than flush to the viewport edge.
+   The system stack keeps the controls legible regardless of the theme font of
+   the document above. */
+.preview-box {
+  max-width: 720px;
+  margin: 0 auto;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  background: var(--background);
+  color: var(--foreground);
+  font-family: system-ui, -apple-system, "Segoe UI", Arial, sans-serif;
+}
+
+.preview-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.preview-toggle {
+  align-self: flex-start;
+  padding: 8px 14px;
+  border: 1px solid var(--foreground);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.preview-toggle:hover {
+  background: var(--foreground);
+  color: var(--background);
+}
+
+.preview-toggle:focus-visible,
+.preview-generate:focus-visible,
+.preview-back:focus-visible,
+.preview-input:focus-visible {
+  outline: 2px solid var(--foreground);
+  outline-offset: 2px;
+}
+
+.preview-input {
+  width: 100%;
+  min-height: 96px;
+  padding: 10px 12px;
+  border: 1px solid rgba(127, 127, 127, 0.6);
+  border-radius: 10px;
+  background: transparent;
+  color: var(--foreground);
+  font: inherit;
+  font-size: 15px;
+  line-height: 1.5;
+  resize: vertical;
+}
+
+.preview-input::placeholder {
+  opacity: 0.65;
+}
+
+.preview-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preview-count {
+  font-size: 12px;
+  opacity: 0.7;
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-generate,
+.preview-back {
+  padding: 8px 14px;
+  border: 1px solid var(--foreground);
+  border-radius: 999px;
+  background: var(--foreground);
+  color: var(--background);
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.preview-generate:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* "Back to today's UI" is a secondary action next to the quoted brief, so it
+   stays an outline chip rather than a second filled button. */
+.preview-back {
+  background: transparent;
+  color: var(--foreground);
+  flex-shrink: 0;
+}
+
+/* Errors reuse the file's existing amber (stale-badge) family rather than
+   introducing a hue the palette does not already carry. */
+.preview-error {
+  font-size: 14px;
+  color: #92400e;
+}
+
+@media (prefers-color-scheme: dark) {
+  .preview-error {
+    color: #fcd34d;
+  }
+}
+
+.preview-summary-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.preview-summary {
+  min-width: 0;
+  font-size: 14px;
+  font-style: italic;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+
+.preview-region {
+  border: 1px solid rgba(127, 127, 127, 0.35);
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+/* A preview is a block inside the page, not a page of its own: the themed
+   surface must not claim a viewport of its own, and its body padding is sized
+   for the document page (no corner badges here to clear). */
+.preview-region .theme-root {
+  min-height: 0;
+}
+
+.preview-region .doc-body {
+  padding: 24px;
+}
+
+.preview-region-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 24px 0;
+}
+
+.preview-region-title {
+  margin: 0;
+  min-width: 0;
+  font-size: 1.25rem;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 560px) {
+  /* The counter and the two buttons cannot share one line on a narrow screen,
+     so the action row wraps and the buttons take the full width. */
+  .preview-actions {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+
+  .preview-generate {
+    flex: 1 1 100%;
+  }
+
+  .preview-summary-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .preview-region-head {
+    padding: 12px 16px 0;
+  }
+
+  .preview-region .doc-body {
+    padding: 16px;
   }
 }

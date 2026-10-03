@@ -187,6 +187,33 @@ describe("today page (spec §6)", () => {
     expect(createProvider).not.toHaveBeenCalled(); // env missing → short-circuit
   });
 
+  it("empty db → the preview toggle is mounted (spec §5: works on a fresh deploy)", async () => {
+    const { page } = await loadPage();
+
+    render(await page.default());
+
+    // Spec §5 requires the preview box on a fresh deploy with an EMPTY
+    // database, which is exactly this branch. The box takes no props and reads
+    // no stored document, so it needs nothing here — a preview fetches its own
+    // tree at runtime. Moving <PreviewBox /> inside the populated branch only
+    // would break the requirement while leaving every other test in this file
+    // green, so assert it here explicitly.
+    expect(screen.getByTestId("preview-toggle")).not.toBeNull();
+    expect(screen.getByTestId("empty-state")).not.toBeNull();
+  });
+
+  it("populated db → the preview toggle is mounted alongside the document (spec §5)", async () => {
+    const { page, db, handle } = await loadPage();
+    seed(db, handle, localToday(), JSON.stringify(doc(localToday())));
+
+    render(await page.default());
+
+    // The other half of the same requirement: the box must survive the
+    // populated branch too, or a visitor with today's UI cannot use it.
+    expect(screen.getByTestId("preview-toggle")).not.toBeNull();
+    expect(screen.getByTestId("theme-root")).not.toBeNull();
+  });
+
   it("older row only + no LLM env → latest fallback with the 'showing most recent' badge", async () => {
     const { page, db, handle } = await loadPage();
     const older = doc(OLDER, "Old page");

@@ -4,6 +4,7 @@ import { todayLocal } from "../lib/date";
 import { attemptRenderGeneration } from "../lib/generate";
 import type { UiDocument } from "../lib/schema";
 import { DocView, docTitle, parseStoredDoc } from "./doc-view";
+import { PreviewBox } from "./preview-box";
 
 /**
  * `/` — today's stored document, falling back to the latest stored row when
@@ -60,22 +61,30 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
+/**
+ * The document area and the preview box are siblings, and the box is mounted in
+ * BOTH branches: it takes no props and reads no stored document (the preview
+ * path fetches its own tree), so a visitor can describe a UI even when nothing
+ * has ever been generated. The daily document above stays server-rendered and
+ * untouched — a preview renders in its own region below it.
+ */
 export default async function Home() {
   const loaded = await loadToday();
-  if (loaded === undefined) {
-    return (
-      <main className="empty-state" data-testid="empty-state">
-        <p>Nothing generated yet</p>
-      </main>
-    );
-  }
-  const { row, doc, today } = loaded;
   return (
-    <DocView
-      doc={doc}
-      date={row.date}
-      stale={row.stale}
-      showingRecent={row.date !== today}
-    />
+    <>
+      {loaded === undefined ? (
+        <main className="empty-state" data-testid="empty-state">
+          <p>Nothing generated yet</p>
+        </main>
+      ) : (
+        <DocView
+          doc={loaded.doc}
+          date={loaded.row.date}
+          stale={loaded.row.stale}
+          showingRecent={loaded.row.date !== loaded.today}
+        />
+      )}
+      <PreviewBox />
+    </>
   );
 }

@@ -1,0 +1,361 @@
+import { Cooldown } from "../../../lib/cooldown";
+import { todayLocal } from "../../../lib/date";
+import { generateFromBrief } from "../../../lib/generate";
+import { createProvider, type LlmProvider, type LlmProviderName } from "../../../lib/llm/provider";
+
+/**
+ * POST /api/preview — generate a UI document from a visitor's free-text brief.
+ *
+ * UNAUTHENTICATED by design: this route is open to anyone, so its cost is
+ * bounded by rate limits rather than by a secret. `GENERATE_SECRET` is
+ * deliberately NOT read here — it is the daily `POST /api/generate` credential.
+ * Nothing is persisted: the document is returned and forgotten.
+ *
+ * Checks run in exactly this order, first failure wins, so a caller always
+ * learns the FIRST thing that is wrong with it:
+ *   1. body size then shape → at most MAX_BODY_BYTES read (400 bad-brief), then
+ *      `{brief: string}` with a trimmed length of 8–400 characters and no
+ *      prompt-fence delimiter (400 bad-brief)
+ *   2. per-client cooldown → one generation per client per 10 minutes
+ *      (429 cooldown, with `retryAfterMinutes`). BEST-EFFORT ONLY — see below.
+ *   3. per-process daily cap → `PREVIEW_DAILY_CAP` (default 50) generations per
+ *      UTC calendar day (429 daily-cap). This is the ONLY hard ceiling on
+ *      PREVIEW spend; the cooldown above is not one, and the site's other
+ *      generation paths (§6 render-time attempt, POST /api/generate) are not
+ *      counted by it at all.
+ *   4. provider config from server-held `LLM_PROVIDER`/`LLM_API_KEY`, missing
+ *      or empty → 503 unavailable without constructing a provider
+ *   5. generation → 200 `{doc}`, or 502 generation-failed
+ *
+ * The body is read with a hard byte cap (`readCappedBody`) BEFORE any parsing:
+ * this is the only unauthenticated endpoint that reads a body at all, and App
+ * Router route handlers apply no default body limit, so `request.text()` alone
+ * would let an anonymous caller choose how much this process buffers.
+ *
+ * Every error response is a FIXED body from this list. No `err.message` is ever
+ * surfaced: a `GenerationError` message carries the provider's endpoint URL,
+ * its HTTP status, a slice of the upstream response body, and model-controlled
+ * strings, all of which would leak to an unauthenticated caller. The cause is
+ * logged server-side instead, and only ever the class name and the brief's
+ * LENGTH.
+ */
+
+/** A brief must be at least this many characters after trimming to be usable. */
+const MIN_BRIEF_LENGTH = 8;
+/** ...and at most this many, so one request cannot stream an unbounded prompt. */
+const MAX_BRIEF_LENGTH = 400;
+/**
+ * Hard ceiling on the bytes read out of a request body, DERIVED from
+ * `MAX_BRIEF_LENGTH` rather than guessed — the two are different units, and a
+ * guess is what made this bug: a fixed 1 KB refused a maximum-length Chinese or
+ * Japanese brief (the client accepts it; the server called it `bad-brief`, whose
+ * copy tells its author they wrote too little).
+ *
+ * `MAX_BRIEF_LENGTH` counts UTF-16 code units of the trimmed brief; this counts
+ * bytes of the JSON body wrapping it. The two are not comparable directly
+ * because JSON escaping can inflate ONE character to SIX bytes (a control
+ * character becomes the 6-byte `\uXXXX`). So the true worst case is 6 bytes per
+ * character unit — 400 × 3 for CJK, 400 × 6 escaped — plus the `{"brief":""}`
+ * envelope, and the cap has to be sized from the character bound or it will
+ * silently become the reason a legitimate brief is refused.
+ */
+const MAX_BODY_BYTES = MAX_BRIEF_LENGTH * 6 + 64;
+/** One generation per client per 10 minutes. */
+const PREVIEW_COOLDOWN_MS = 10 * 60 * 1000;
+/** Generations allowed per UTC day when `PREVIEW_DAILY_CAP` is unusable. */
+const DEFAULT_DAILY_CAP = 50;
+/** The visitor-brief prompt's own closing fence; a brief must not contain it. */
+const BRIEF_FENCE_END = "--- END VISITOR BRIEF ---";
+
+/** Per-client cooldown, in-memory and per-process by design. */
+const previewCooldown = new Cooldown(PREVIEW_COOLDOWN_MS);
+
+/** UTC day the daily counter belongs to ("YYYY-MM-DD"); rolled on each check. */
+let capDay = "";
+/** Generations admitted so far on `capDay`. */
+let capCount = 0;
+
+/**
+ * Every response here is explicitly `Cache-Control: no-store`.
+ *
+ * A preview is returned once and forgotten, and the spec promises the visitor
+ * that: not archived, not retrievable, not served to anyone else. Next's
+ * dynamic-for-POST default happens to hold that today, but it is a framework
+ * behaviour rather than a property of this code, and an intermediary cache or
+ * CDN is free to disagree. Stating it here means the promise survives a
+ * framework change.
+ */
+const NO_STORE_HEADERS = { "cache-control": "no-store" };
+
+function error(
+  body: { error: string; retryAfterMinutes?: number },
+  status: number,
+): Response {
+  return Response.json(body, { status, headers: NO_STORE_HEADERS });
+}
+
+type BriefResolution = { ok: true; brief: string } | { ok: false };
+
+/**
+ * The request body as text, refusing anything longer than `cap` bytes.
+ * `undefined` means "too big, or unreadable" — both are answered `bad-brief`,
+ * so bounding the read adds no response shape.
+ *
+ * TWO guards, because either alone can be defeated by an anonymous caller:
+ *   - a DECLARED `content-length` over the cap is refused before a byte is read;
+ *   - the stream is then read against a hard byte ceiling, which is what stops a
+ *     chunked request (no header at all) and a request that simply LIES about
+ *     its length. `request.text()` would buffer all of it first and bound
+ *     nothing, which is the whole point: App Router route handlers have no
+ *     default body limit (`bodyParser.sizeLimit` is Pages-Router-only,
+ *     `bodySizeLimit` is Server-Actions-only), and this is the only
+ *     unauthenticated endpoint that reads a body at all — `POST /api/generate`
+ *     checks `x-generate-secret` before touching its body — so an unbounded
+ *     read here is an anonymous way to grow the process's memory.
+ *
+ * A read that throws mid-stream is a failed read, not a crash: a body the
+ * client abandons is indistinguishable from a broken one, and neither is worth
+ * a 500.
+ */
+async function readCappedBody(request: Request, cap: number = MAX_BODY_BYTES): Promise<string | undefined> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null && /^\d+$/.test(declared.trim()) && Number(declared) > cap) {
+    return undefined;
+  }
+  const body = request.body;
+  if (body === null) {
+    return "";
+  }
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      received += value.byteLength;
+      if (received > cap) {
+        // Stop reading rather than draining the rest: cancel() is what keeps
+        // this bounded no matter how much the caller streams.
+        await reader.cancel();
+        return undefined;
+      }
+      // Streaming decode, so a multi-byte character split across two chunks is
+      // not corrupted into U+FFFD.
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } catch {
+    return undefined;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
+ * Validate the request body into a trimmed brief. Invalid input resolves
+ * `ok: false` (400) and never reaches the provider.
+ *
+ * The delimiter check is part of validity, not a separate rule: this route is
+ * the untrusted-input boundary for `generateFromBrief`, and a brief carrying
+ * the prompt's own closing fence could terminate the fenced section early and
+ * pose as prompt text that follows it.
+ */
+async function resolveBrief(request: Request): Promise<BriefResolution> {
+  const body = await readCappedBody(request);
+  if (body === undefined) {
+    return { ok: false };
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return { ok: false };
+  }
+  // Arrays and primitives are not request bodies: reject rather than let an
+  // array fall through the `"brief" in parsed` check and read a missing key.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false };
+  }
+  const raw: unknown = (parsed as { brief?: unknown }).brief;
+  if (typeof raw !== "string") {
+    return { ok: false };
+  }
+  const brief = raw.trim();
+  if (brief.length < MIN_BRIEF_LENGTH || brief.length > MAX_BRIEF_LENGTH) {
+    return { ok: false };
+  }
+  if (brief.includes(BRIEF_FENCE_END)) {
+    return { ok: false };
+  }
+  return { ok: true, brief };
+}
+
+/**
+ * The bucket key for a request: the FIRST hop of `x-forwarded-for`, else
+ * `x-real-ip`, else the single "local" bucket every header-less caller shares.
+ *
+ * FIRST-HOP TRUST IS NOT A SECURITY BOUNDARY. This identifies a client well
+ * enough to be convenient and to stop casual repeat-visitors, and that is all
+ * it does. The per-IP cooldown can be bypassed at will by a caller that varies
+ * `x-forwarded-for` — and a correctly configured reverse proxy does NOT save
+ * it: such proxies APPEND the address they observed to whatever the client
+ * already sent, so a client that sends `X-Forwarded-For: <anything>` ends up
+ * with `<anything>, <real-ip>` and this first hop is still the attacker's value.
+ * Anyone calling the origin directly has the same freedom. So the cooldown is
+ * best-effort, must never be treated as a spend ceiling, and must not be
+ * load-bearing for cost control: the daily cap is what actually bounds cost,
+ * and the cap-rejection path releases the cooldown slot for exactly this
+ * reason.
+ */
+function clientIp(request: Request): string {
+  const forwarded = request.headers.get("x-forwarded-for");
+  if (forwarded !== null) {
+    const first = forwarded.split(",")[0]?.trim();
+    if (first !== undefined && first.length > 0) {
+      return first;
+    }
+  }
+  const realIp = request.headers.get("x-real-ip")?.trim();
+  if (realIp !== undefined && realIp.length > 0) {
+    return realIp;
+  }
+  return "local";
+}
+
+/**
+ * The current UTC calendar day, so the cap resets at midnight UTC no matter
+ * what timezone the host runs in (the opposite rule from the LOCAL "today" the
+ * generated document is dated with — see `todayLocal`).
+ */
+function utcDay(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+/**
+ * `PREVIEW_DAILY_CAP` when it is a plain positive integer, else
+ * DEFAULT_DAILY_CAP.
+ *
+ * Plain digits only, deliberately: `Number` also parses "1e3" and "0x10", so a
+ * bare integer check would honour 1000 and 16 — 20× the documented default —
+ * for what is almost certainly a typo in an ops-facing spend ceiling. An
+ * unrecognised value falls back to the safe default rather than to whatever the
+ * typo parsed to.
+ */
+function dailyCap(): number {
+  const raw = process.env.PREVIEW_DAILY_CAP;
+  if (raw === undefined) {
+    return DEFAULT_DAILY_CAP;
+  }
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return DEFAULT_DAILY_CAP;
+  }
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    return DEFAULT_DAILY_CAP;
+  }
+  return parsed;
+}
+
+export async function POST(request: Request): Promise<Response> {
+  // 1. Brief validity, before anything consumes a rate-limit slot: a caller
+  //    with a malformed brief should not have its cooldown or the daily cap
+  //    spent on it.
+  const resolution = await resolveBrief(request);
+  if (!resolution.ok) {
+    return error({ error: "bad-brief" }, 400);
+  }
+  const { brief } = resolution;
+
+  // 2. Per-client cooldown, before any provider work.
+  const ip = clientIp(request);
+  if (!previewCooldown.tryConsume(ip)) {
+    const retryAfterMinutes = Math.max(1, Math.ceil(previewCooldown.remainingMs(ip) / 60_000));
+    return error({ error: "cooldown", retryAfterMinutes }, 429);
+  }
+
+  // 3. Daily cap across all clients. This route is unauthenticated, so the
+  //    per-IP cooldown alone cannot bound total spend: one client could rotate
+  //    source addresses, and many clients can share one.
+  const today = utcDay();
+  if (today !== capDay) {
+    capDay = today;
+    capCount = 0;
+  }
+  if (capCount >= dailyCap()) {
+    // The cooldown was consumed above, but this caller is getting no generation
+    // for it. Give the slot back: keeping it would mean one Map entry per
+    // request from an UNAUTHENTATED caller rotating x-forwarded-for, growing
+    // memory in proportion to rejected traffic rather than to real spend.
+    previewCooldown.release(ip);
+    // A cap rejection is the signal that someone is draining the day's spend,
+    // and nothing else in the route reports it: a preview costs no credit here,
+    // so there is no 502 to trace and no failure to log. One aggregated line
+    // naming the client and the day's usage, so an operator can see WHO is
+    // consuming the budget rather than only that it went. The brief is
+    // untrusted visitor text and is never logged; the IP is a caller-chosen
+    // header value, so it is for correlation and not an identity.
+    console.error(
+      `preview daily cap reached (${capCount}/${dailyCap()} admitted, client ${ip}) ` +
+        "— refusing without spending a slot",
+    );
+    return error({ error: "daily-cap" }, 429);
+  }
+
+  // 4. Provider wiring from server-held env; the key is passed through and
+  //    never logged or returned. Missing/empty config is "unavailable", not
+  //    "bad request": nothing about the visitor's brief is wrong.
+  const providerName = process.env.LLM_PROVIDER;
+  const apiKey = process.env.LLM_API_KEY;
+  if (providerName === undefined || providerName.length === 0) {
+    return error({ error: "unavailable" }, 503);
+  }
+  if (apiKey === undefined || apiKey.length === 0) {
+    return error({ error: "unavailable" }, 503);
+  }
+  let provider: LlmProvider;
+  try {
+    provider = createProvider(providerName as LlmProviderName, apiKey);
+  } catch {
+    // An unknown provider name in env is a misconfiguration. Its message names
+    // the configured value, so it stays server-side too.
+    return error({ error: "unavailable" }, 503);
+  }
+
+  // The day's slot is spent HERE, after the config is known good — not at the
+  // check above. A 503 spends no credit, so it must not spend the day's budget
+  // either: with the increment where it was, an unset or misconfigured provider
+  // plus rotated `x-forwarded-for` drained PREVIEW_DAILY_CAP without generating
+  // anything, and every real visitor got `daily-cap` until UTC midnight. The
+  // CHECK stays above so the reporting order is unchanged — brief → cooldown →
+  // cap → config → generation — and a caller is still told `daily-cap` before it
+  // is told `unavailable`.
+  capCount += 1;
+
+  // 5. Run the pipeline. `generateFromBrief` throws GenerationError only after
+  //    its own single repair attempt, and `runAttempt` already folds provider
+  //    throws into it — so the message here can carry upstream detail. It is
+  //    never returned to the caller.
+  try {
+    const doc = await generateFromBrief({ provider }, brief, todayLocal());
+    return Response.json({ doc }, { headers: NO_STORE_HEADERS });
+  } catch (err) {
+    // Log the class name and the brief's LENGTH, and nothing else. Both
+    // branches log: `generateFromBrief` already folds every provider throw
+    // into a GenerationError, so quota exhaustion, upstream 429s and network
+    // faults all arrive HERE — an unconditional log is the only way those
+    // failures leave a server-side trace. Neither `err.message` (it carries
+    // the endpoint URL, the HTTP status, an upstream body slice and
+    // model-controlled strings), nor the brief text (the visitor's, untrusted),
+    // nor the API key is ever written.
+    console.error(
+      `preview generation failed (brief length ${brief.length}):`,
+      err instanceof Error ? err.constructor.name : typeof err,
+    );
+    return error({ error: "generation-failed" }, 502);
+  }
+}
