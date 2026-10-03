@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type JSX } from "react";
+import { useCallback, useEffect, useRef, useState, type JSX } from "react";
 import { Renderer } from "../lib/renderer";
 import type { UiDocument } from "../lib/schema";
 import { ThemeSurface } from "./theme-surface";
@@ -36,6 +36,71 @@ const MAX_BRIEF_LENGTH = 400;
 
 /** Shown for any failure the mapping below does not recognise. */
 const GENERIC_ERROR = "Couldn't generate that right now";
+
+/* ── Floating panel position ────────────────────────────────────────────── */
+
+/**
+ * Where the composer panel rests. The visitor drags it by its header and it
+ * snaps to the nearest viewport edge, so a dropped panel never sits at an
+ * arbitrary offset that could leave it off-screen on a smaller window.
+ */
+type Edge = "top-left" | "top-right" | "bottom-left" | "bottom-right";
+
+/** localStorage key for the remembered resting place. */
+const POSITION_KEY = "daily-ui:preview-panel-position";
+
+const DEFAULT_EDGE: Edge = "bottom-right";
+
+/**
+ * Remembered position, or the default when absent or unusable. A corrupt or
+ * hand-edited value must never stop the panel from opening, so anything that
+ * is not a known edge falls back rather than throwing.
+ */
+function loadEdge(): Edge {
+  try {
+    const raw = window.localStorage.getItem(POSITION_KEY);
+    if (raw === null) {
+      return DEFAULT_EDGE;
+    }
+    const parsed: unknown = JSON.parse(raw);
+    const edge = typeof parsed === "object" && parsed !== null ? (parsed as { edge?: unknown }).edge : undefined;
+    return edge === "top-left" || edge === "top-right" || edge === "bottom-left" || edge === "bottom-right"
+      ? edge
+      : DEFAULT_EDGE;
+  } catch {
+    return DEFAULT_EDGE;
+  }
+}
+
+function saveEdge(edge: Edge): void {
+  try {
+    window.localStorage.setItem(POSITION_KEY, JSON.stringify({ edge }));
+  } catch {
+    // Private browsing or a full quota: the panel still works, it just forgets.
+  }
+}
+
+/** Forget the remembered position entirely, rather than storing the default. */
+function clearEdge(): void {
+  try {
+    window.localStorage.removeItem(POSITION_KEY);
+  } catch {
+    // As above: a reset that cannot persist simply leaves the panel where it is.
+  }
+}
+
+/** Nearest corner to a viewport point, which is where a dropped panel snaps. */
+function nearestEdge(x: number, y: number): Edge {
+  const left = x < window.innerWidth / 2;
+  const top = y < window.innerHeight / 2;
+  if (top) {
+    return left ? "top-left" : "top-right";
+  }
+  return left ? "bottom-left" : "bottom-right";
+}
+
+/** Arrow-key nudge, in pixels. Dragging is pointer-only, so this is not optional. */
+const KEYBOARD_STEP = 24;
 
 /**
  * Fixed copy per documented error code. Each code gets its OWN message: telling
@@ -124,6 +189,92 @@ export function PreviewBox(): JSX.Element {
   const headingRef = useRef<HTMLHeadingElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
 
+  // Floating panel: resting edge (remembered), plus the live drag offset that
+  // exists only between pointerdown and pointerup.
+  const [edge, setEdge] = useState<Edge>(DEFAULT_EDGE);
+  const [dragOffset, setDragOffset] = useState<{ x: number; y: number } | null>(null);
+  const dragOrigin = useRef<{ x: number; y: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  /** True once a stored position has been read, so the default never overwrites it. */
+  const positionLoaded = useRef(false);
+
+  useEffect(() => {
+    setEdge(loadEdge());
+    positionLoaded.current = true;
+  }, []);
+
+  const finishDrag = useCallback((clientX: number, clientY: number) => {
+    const snapped = nearestEdge(clientX, clientY);
+    setDragOffset(null);
+    dragOrigin.current = null;
+    setEdge(snapped);
+    if (positionLoaded.current) {
+      saveEdge(snapped);
+    }
+  }, []);
+
+  const handlePointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    // Primary button only: a right-click opens a context menu, it does not drag.
+    if (event.button !== 0) {
+      return;
+    }
+    dragOrigin.current = { x: event.clientX, y: event.clientY };
+    setDragOffset({ x: 0, y: 0 });
+    // Capture keeps the drag alive when the pointer leaves the header. Guarded
+    // because it is absent in some environments (and in jsdom), where the drag
+    // still works via the header's own pointermove events.
+    if (typeof event.currentTarget.setPointerCapture === "function") {
+      event.currentTarget.setPointerCapture(event.pointerId);
+    }
+  }, []);
+
+  const handlePointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const origin = dragOrigin.current;
+    if (origin === null) {
+      return;
+    }
+    setDragOffset({ x: event.clientX - origin.x, y: event.clientY - origin.y });
+  }, []);
+
+  const handlePointerUp = useCallback(
+    (event: React.PointerEvent<HTMLDivElement>) => {
+      if (dragOrigin.current === null) {
+        return;
+      }
+      if (
+        typeof event.currentTarget.hasPointerCapture === "function" &&
+        event.currentTarget.hasPointerCapture(event.pointerId) &&
+        typeof event.currentTarget.releasePointerCapture === "function"
+      ) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+      finishDrag(event.clientX, event.clientY);
+    },
+    [finishDrag],
+  );
+
+  /** Keyboard equivalent of a drag, so the panel is not pointer-only. */
+  const handleHeaderKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      const nudges: Record<string, { dx: number; dy: number }> = {
+        ArrowLeft: { dx: -KEYBOARD_STEP, dy: 0 },
+        ArrowRight: { dx: KEYBOARD_STEP, dy: 0 },
+        ArrowUp: { dx: 0, dy: -KEYBOARD_STEP },
+        ArrowDown: { dx: 0, dy: KEYBOARD_STEP },
+      };
+      const nudge = nudges[event.key];
+      if (nudge === undefined) {
+        return;
+      }
+      event.preventDefault();
+      const box = panelRef.current?.getBoundingClientRect();
+      const currentX = box === undefined ? window.innerWidth / 2 : box.left + box.width / 2;
+      const currentY = box === undefined ? window.innerHeight / 2 : box.top + box.height / 2;
+      finishDrag(currentX + nudge.dx, currentY + nudge.dy);
+    },
+    [finishDrag],
+  );
+
   useEffect(() => {
     if (result !== null) {
       headingRef.current?.focus();
@@ -163,21 +314,138 @@ export function PreviewBox(): JSX.Element {
 
   const tooShort = brief.trim().length < MIN_BRIEF_LENGTH;
 
+  // The generated design gets the whole viewport: 23 components in a floating
+  // panel would be unreadable, and the daily document stays mounted underneath
+  // so "back" is instant.
+  if (result !== null) {
+    return (
+      <div
+        className="preview-result"
+        data-testid="preview-result"
+        role="dialog"
+        aria-label="Your generated UI"
+      >
+        <div className="preview-summary-row">
+          <p className="preview-summary" data-testid="preview-summary">
+            {`“${brief}”`}
+          </p>
+          <button
+            type="button"
+            className="preview-back"
+            data-testid="preview-back"
+            onClick={() => {
+              setResult(null);
+              setError(null);
+            }}
+          >
+            Back to today&apos;s UI
+          </button>
+        </div>
+        <div className="preview-region" data-testid="preview-region">
+          <ThemeSurface doc={result}>
+            <div className="preview-region-head">
+              <h2 className="preview-region-title" ref={headingRef} tabIndex={-1}>
+                {result.title}
+              </h2>
+              <span className="badge badge-preview">preview</span>
+            </div>
+            {/* A plain div, never a second <main>: the page already has
+                exactly one (the daily document or the empty state) and
+                neither is named, so a second one would be an indistinguishable
+                landmark. Styling is class-based, so the box is unchanged. */}
+            <div className="doc-body">
+              <Renderer node={result.root} />
+            </div>
+          </ThemeSurface>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <section className="preview-box" aria-label="Describe your own UI">
-      <button
-        type="button"
-        className="preview-toggle"
-        data-testid="preview-toggle"
-        aria-expanded={open}
-        onClick={() => setOpen((wasOpen) => !wasOpen)}
-      >
-        Describe your own UI
-      </button>
+      {/* The launcher is replaced by the panel rather than sitting under it:
+          both occupy the same corner, so showing both overlaps them. */}
+      {open ? null : (
+        <button
+          type="button"
+          className="preview-toggle"
+          data-testid="preview-toggle"
+          aria-expanded={open}
+          onClick={() => setOpen(true)}
+        >
+          Describe your own UI
+        </button>
+      )}
 
       {open ? (
-        result === null ? (
-          <div className="preview-panel">
+          <div
+            className="preview-panel"
+            data-testid="preview-panel"
+            data-edge={edge}
+            ref={panelRef}
+            style={
+              dragOffset === null
+                ? undefined
+                : { transform: `translate(${dragOffset.x}px, ${dragOffset.y}px)` }
+            }
+            onKeyDown={(event) => {
+              if (event.key === "Escape") {
+                event.stopPropagation();
+                setOpen(false);
+              }
+            }}
+          >
+            {/* The header is the drag handle: pointer capture keeps the drag
+                alive when the pointer leaves it, and user-select:none (in CSS)
+                stops the drag from selecting text. */}
+            <div
+              className="preview-header"
+              data-testid="preview-header"
+              role="toolbar"
+              aria-label="Move or reset the preview panel"
+              onPointerDown={handlePointerDown}
+              onPointerMove={handlePointerMove}
+              onPointerUp={handlePointerUp}
+              onPointerCancel={handlePointerUp}
+              onKeyDown={handleHeaderKeyDown}
+            >
+              <span className="preview-grip" aria-hidden="true">
+                ⠿
+              </span>
+              <span className="preview-header-label">Your UI</span>
+              <button
+                type="button"
+                className="preview-reset"
+                data-testid="preview-reset"
+                // Buttons inside the drag handle must not start a drag:
+                // pointerup on the header would re-snap the panel after the
+                // click had already chosen a position.
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setEdge(DEFAULT_EDGE);
+                  clearEdge();
+                }}
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                className="preview-reset"
+                data-testid="preview-close"
+                onPointerDown={(event) => {
+                  event.stopPropagation();
+                }}
+                onClick={() => {
+                  setOpen(false);
+                }}
+              >
+                Close
+              </button>
+            </div>
             <textarea
               className="preview-input"
               data-testid="preview-input"
@@ -219,44 +487,8 @@ export function PreviewBox(): JSX.Element {
               </p>
             ) : null}
           </div>
-        ) : (
-          <div className="preview-panel">
-            <div className="preview-summary-row">
-              <p className="preview-summary" data-testid="preview-summary">
-                {`“${brief}”`}
-              </p>
-              <button
-                type="button"
-                className="preview-back"
-                data-testid="preview-back"
-                onClick={() => {
-                  setResult(null);
-                  setError(null);
-                }}
-              >
-                Back to today&apos;s UI
-              </button>
-            </div>
-            <div className="preview-region" data-testid="preview-region">
-              <ThemeSurface doc={result}>
-                <div className="preview-region-head">
-                  <h2 className="preview-region-title" ref={headingRef} tabIndex={-1}>
-                    {result.title}
-                  </h2>
-                  <span className="badge badge-preview">preview</span>
-                </div>
-                {/* A plain div, never a second <main>: the page already has
-                    exactly one (the daily document or the empty state) and
-                    neither is named, so a second one would be an indistinguishable
-                    landmark. Styling is class-based, so the box is unchanged. */}
-                <div className="doc-body">
-                  <Renderer node={result.root} />
-                </div>
-              </ThemeSurface>
-            </div>
-          </div>
         )
-      ) : null}
+      : null}
     </section>
   );
 }

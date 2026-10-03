@@ -90,7 +90,10 @@ describe("PreviewBox", () => {
     render(<PreviewBox />);
     fireEvent.click(screen.getByTestId("preview-toggle"));
 
-    expect(screen.getByTestId("preview-toggle").getAttribute("aria-expanded")).toBe("true");
+    // The launcher is replaced by the panel while it is open (they share a
+    // corner), so expansion is observable as the panel being present.
+    expect(screen.queryByTestId("preview-toggle")).toBeNull();
+    expect(screen.getByTestId("preview-panel")).not.toBeNull();
     const input = screen.getByTestId("preview-input");
     expect(input.tagName).toBe("TEXTAREA");
     // Label by aria-label, not a <label for>: the textarea has no visible

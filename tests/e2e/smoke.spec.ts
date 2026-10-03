@@ -337,6 +337,48 @@ test.describe("seeded database", () => {
     expect(doc.root?.componentType).toBe("Stack");
   });
 
+  test("the composer panel can be dragged and remembers where it was left", async ({ page }) => {
+    // Known baseline: this test asserts on remembered state, so it must not
+    // inherit a position from anything that ran before it. Cleared once here
+    // rather than via addInitScript, which would also wipe it on the reload
+    // this test depends on.
+    await page.goto("/");
+    await page.evaluate(() => {
+      window.localStorage.clear();
+    });
+    await page.reload();
+    await page.getByTestId("preview-toggle").click();
+    const panel = page.getByTestId("preview-panel");
+    await expect(panel).toHaveAttribute("data-edge", "bottom-right");
+    const before = await panel.boundingBox();
+    expect(before).not.toBeNull();
+
+    // Drag the header into the top-left quadrant and release there.
+    const header = page.getByTestId("preview-header");
+    const headerBox = await header.boundingBox();
+    expect(headerBox).not.toBeNull();
+    if (headerBox === null || before === null) throw new Error("panel is not laid out");
+
+    await page.mouse.move(headerBox.x + headerBox.width / 2, headerBox.y + headerBox.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(headerBox.x - 300, headerBox.y - 300, { steps: 12 });
+    await page.mouse.up();
+
+    // It snaps to the corner it was dropped nearest, and that is remembered.
+    await expect(panel).toHaveAttribute("data-edge", "top-left");
+    const after = await panel.boundingBox();
+    expect(after?.x ?? 0).toBeLessThan(before.x);
+
+    // A reload comes back to the remembered corner, not the default.
+    await page.reload();
+    await page.getByTestId("preview-toggle").click();
+    await expect(page.getByTestId("preview-panel")).toHaveAttribute("data-edge", "top-left");
+
+    // And the escape hatch puts it back.
+    await page.getByTestId("preview-reset").click();
+    await expect(page.getByTestId("preview-panel")).toHaveAttribute("data-edge", "bottom-right");
+  });
+
   test("preview renders a described UI through the same renderer", async ({ page }) => {
     const noise = trackNoise(page);
     await stubPreview(page, sampleDoc);
