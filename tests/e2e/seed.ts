@@ -32,13 +32,33 @@ function localDate(offsetDays = 0): string {
   return `${date.getFullYear()}-${month}-${day}`;
 }
 
-export const TODAY = localDate(0);
-export const YESTERDAY = localDate(1);
-export const OLDER = localDate(3);
-export const BOGUS_DATE = localDate(5);
+/*
+ * Dates are derived on demand, never frozen at import time: a suite that
+ * starts at 23:59 and asserts at 00:01 must still expect the server's
+ * "today", not the date the module was loaded on. (Residual limit: a run that
+ * crosses local midnight *between seeding and asserting* still sees two
+ * different days; that needs clock control, not a fresher constant.)
+ */
+export function today(): string {
+  return localDate(0);
+}
+
+export function yesterday(): string {
+  return localDate(1);
+}
+
+export function older(): string {
+  return localDate(3);
+}
+
+export function bogusDate(): string {
+  return localDate(5);
+}
 
 /** Seed row dates, newest first — the expected `/api/archive` order. */
-export const SEED_DATES = [TODAY, YESTERDAY, OLDER, BOGUS_DATE] as const;
+export function seedDates(): readonly string[] {
+  return [today(), yesterday(), older(), bogusDate()];
+}
 
 /**
  * Upserts the fixture rows into the e2e database: today's row (flagged stale,
@@ -57,8 +77,8 @@ export function seedFixture(): void {
   }
 
   const db = getDb(E2E_DB_PATH);
-  upsertDay(db, { date: TODAY, json: fixture, directive: "data-dashboard", stale: true });
-  upsertDay(db, { date: YESTERDAY, json: fixture, directive: "brutalist", stale: false });
-  upsertDay(db, { date: OLDER, json: fixture, directive: "pastel", stale: false });
-  upsertDay(db, { date: BOGUS_DATE, json: JSON.stringify(bogus), directive: "neon-cyber", stale: false });
+  upsertDay(db, { date: today(), json: fixture, directive: "data-dashboard", stale: true });
+  upsertDay(db, { date: yesterday(), json: fixture, directive: "brutalist", stale: false });
+  upsertDay(db, { date: older(), json: fixture, directive: "pastel", stale: false });
+  upsertDay(db, { date: bogusDate(), json: JSON.stringify(bogus), directive: "neon-cyber", stale: false });
 }

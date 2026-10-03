@@ -1,5 +1,6 @@
 import type Database from "better-sqlite3";
 import { getLatestDay, upsertDay } from "./db";
+import { Cooldown } from "./cooldown";
 import { pickDirective, type Directive } from "./directives";
 import { extractJson } from "./llm/extract";
 import { createProvider, type LlmProvider, type LlmProviderName } from "./llm/provider";
@@ -162,10 +163,7 @@ export async function generateDay(deps: GenerateDeps, date: string): Promise<Gen
 }
 
 /** One render-triggered generation attempt per date per 10 minutes. */
-const RENDER_ATTEMPT_COOLDOWN_MS = 10 * 60 * 1000;
-
-/** In-memory, per-process: date → epoch ms of the last render-triggered attempt. */
-const lastRenderAttemptByDate = new Map<string, number>();
+const renderAttemptCooldown = new Cooldown(10 * 60 * 1000);
 
 /**
  * Spec §6: the ONE server-side generation attempt made when a render (today
@@ -195,12 +193,9 @@ export async function attemptRenderGeneration(
     return null;
   }
 
-  const now = Date.now();
-  const last = lastRenderAttemptByDate.get(date);
-  if (last !== undefined && now - last < RENDER_ATTEMPT_COOLDOWN_MS) {
+  if (!renderAttemptCooldown.tryConsume(date)) {
     return null;
   }
-  lastRenderAttemptByDate.set(date, now);
 
   try {
     const provider = createProvider(providerName as LlmProviderName, apiKey);

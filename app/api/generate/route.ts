@@ -1,7 +1,9 @@
 import { getDb } from "../../../lib/db";
 import { isCalendarDate, todayLocal } from "../../../lib/date";
+import { Cooldown } from "../../../lib/cooldown";
 import { GenerationError, generateDay } from "../../../lib/generate";
 import { createProvider, type LlmProvider, type LlmProviderName } from "../../../lib/llm/provider";
+import { secretMatches } from "../../../lib/secrets";
 
 /**
  * POST /api/generate — on-demand generation for one date.
@@ -14,11 +16,8 @@ import { createProvider, type LlmProvider, type LlmProviderName } from "../../..
  * generation-failed; success → 200 `{date, stale, directive}`.
  */
 
-/** One accepted on-demand attempt per date per 10 minutes. */
-const RATE_LIMIT_MS = 10 * 60 * 1000;
-
-/** In-memory, per-process: date → epoch ms of the last accepted attempt. */
-const lastAttemptByDate = new Map<string, number>();
+/** One accepted on-demand attempt per date per 10 minutes (in-memory, per-process). */
+const attemptCooldown = new Cooldown(10 * 60 * 1000);
 
 function error(body: { error: string }, status: number): Response {
   return Response.json(body, { status });
@@ -42,7 +41,9 @@ async function resolveDate(request: Request): Promise<DateResolution> {
   } catch {
     return { ok: false };
   }
-  if (typeof parsed !== "object" || parsed === null) {
+  // Arrays and primitives are not request bodies: reject rather than let an
+  // array fall through the `"date" in parsed` check and silently mean "today".
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
     return { ok: false };
   }
   if (!("date" in parsed)) {
@@ -59,7 +60,7 @@ export async function POST(request: Request): Promise<Response> {
   // 1. Auth: exact match against GENERATE_SECRET; unset secret never authorizes.
   const secret = process.env.GENERATE_SECRET;
   const provided = request.headers.get("x-generate-secret");
-  if (secret === undefined || secret.length === 0 || provided !== secret) {
+  if (!secretMatches(provided, secret)) {
     return error({ error: "unauthorized" }, 401);
   }
 
@@ -71,12 +72,9 @@ export async function POST(request: Request): Promise<Response> {
   const { date } = resolution;
 
   // 3. Rate limit: in-memory, keyed by date, checked before any provider work.
-  const now = Date.now();
-  const last = lastAttemptByDate.get(date);
-  if (last !== undefined && now - last < RATE_LIMIT_MS) {
+  if (!attemptCooldown.tryConsume(date)) {
     return error({ error: "rate-limited" }, 429);
   }
-  lastAttemptByDate.set(date, now);
 
   // 4. Provider wiring from env; misconfiguration is a 502, never a crash.
   //    The API key is passed through, never logged.
@@ -98,6 +96,8 @@ export async function POST(request: Request): Promise<Response> {
     if (err instanceof GenerationError) {
       return error({ error: "generation-failed" }, 502);
     }
-    throw err;
+    // Any other failure (e.g. a database error) stays a structured JSON
+    // response like every other error this route returns.
+    return error({ error: "internal-error" }, 500);
   }
 }

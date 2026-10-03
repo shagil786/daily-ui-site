@@ -19,11 +19,16 @@ export async function GET(_request: Request, context: RouteContext): Promise<Res
   if (row === undefined) {
     return error({ error: "not-found" }, 404);
   }
-  let doc: UiDocument;
+  let parsed: unknown;
   try {
-    doc = JSON.parse(row.json) as UiDocument;
+    parsed = JSON.parse(row.json);
   } catch {
     return error({ error: "corrupt" }, 500);
   }
-  return Response.json(doc);
+  // Parses, but is not a document (null, array, string, number) → corrupt,
+  // never a 200 with a non-document body.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return error({ error: "corrupt" }, 500);
+  }
+  return Response.json(parsed as UiDocument);
 }
