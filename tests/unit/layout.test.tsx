@@ -149,4 +149,12 @@ describe("Timeline", () => {
     expect(screen.queryByText("2026-10-02")).not.toBeNull();
     expect(screen.queryByText("timeline-second-event")).not.toBeNull();
   });
+
+  it("keeps list semantics despite list-style: none", () => {
+    const { container } = render(<Timeline events={[{ date: "2026-10-01", text: "a11y-event" }]} />);
+    // Safari VoiceOver drops list semantics when list-style is none, so the
+    // role has to be explicit rather than implicit.
+    expect(container.querySelector("ol")?.getAttribute("role")).toBe("list");
+    expect(screen.getAllByRole("listitem")).toHaveLength(1);
+  });
 });

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { getDay, getDb, getLatestDay, listDays, upsertDay } from "../../lib/db";
+import { getDay, getDb, getLatestDay, listDays, setDbForTesting, upsertDay } from "../../lib/db";
 
 type DayInput = Parameters<typeof upsertDay>[1];
 
@@ -43,6 +43,33 @@ function day(date: string, overrides: Partial<DayInput> = {}): DayInput {
     ...overrides,
   };
 }
+
+describe("setDbForTesting", () => {
+  const override = getDb(":memory:");
+
+  afterEach(() => {
+    setDbForTesting(undefined);
+  });
+
+  it("getDb returns the override while it is set", () => {
+    setDbForTesting(override);
+    upsertDay(override, day("2026-10-01"));
+
+    expect(getDay(getDb(), "2026-10-01")).toBeDefined();
+    expect(listDays(getDb())).toHaveLength(1);
+  });
+
+  it("clearing the override restores normal memoized resolution", () => {
+    setDbForTesting(override);
+    setDbForTesting(undefined);
+
+    const file = tmpDbPath("cleared.db");
+    const resolved = getDb(file);
+    expect(resolved).not.toBe(override);
+    expect(getDb(file)).toBe(resolved); // memoized again, not the override
+    expect(listDays(resolved)).toEqual([]);
+  });
+});
 
 describe("getDb", () => {
   it("returns the same connection for the same path (memoized)", () => {
@@ -151,6 +178,38 @@ describe("listDays", () => {
     expect(rows.map((r) => r.directive)).toEqual(["celebrate", "celebrate", "celebrate"]);
     expect(rows.map((r) => r.stale)).toEqual([false, false, true]);
     expect(typeof rows[1]?.stale).toBe("boolean");
+  });
+
+  it("returns an empty title for parseable json without a string title", () => {
+    const db = getDb(":memory:");
+    upsertDay(db, day("2026-10-02", { json: JSON.stringify({ version: 1 }) }));
+    upsertDay(db, day("2026-10-01", { json: JSON.stringify({ title: 42 }) }));
+
+    expect(listDays(db).map((r) => r.title)).toEqual(["", ""]);
+  });
+
+  it("skips rows whose json is unparseable and keeps the rest", () => {
+    const db = getDb(":memory:");
+    upsertDay(db, day("2026-10-03", { json: "{not json" }));
+    upsertDay(db, day("2026-10-02", { json: JSON.stringify({ title: "Good" }) }));
+    upsertDay(db, day("2026-10-01", { json: "" }));
+
+    expect(listDays(db).map((r) => r.date)).toEqual(["2026-10-02"]);
+  });
+
+  it("treats parseable-but-non-document json as corrupt, like the day route", () => {
+    const db = getDb(":memory:");
+    upsertDay(db, day("2026-10-04", { json: "null" }));
+    upsertDay(db, day("2026-10-03", { json: "[]" }));
+    upsertDay(db, day("2026-10-02", { json: JSON.stringify({ title: "Real" }) }));
+
+    expect(listDays(db).map((r) => r.date)).toEqual(["2026-10-02"]);
+  });
+
+  it("does not throw when every row is corrupt", () => {
+    const db = getDb(":memory:");
+    upsertDay(db, day("2026-10-02", { json: "}{" }));
+    expect(listDays(db)).toEqual([]);
   });
 });
 

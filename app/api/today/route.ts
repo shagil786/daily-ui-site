@@ -1,4 +1,5 @@
 import { getDb, getDay, getLatestDay } from "../../../lib/db";
+import { todayLocal } from "../../../lib/date";
 import { attemptRenderGeneration } from "../../../lib/generate";
 import type { UiDocument } from "../../../lib/schema";
 
@@ -13,14 +14,6 @@ import type { UiDocument } from "../../../lib/schema";
  * throws and never introduces a new response shape (failure → the same
  * latest-or-404 answers as before).
  */
-
-/** Today's local calendar date as YYYY-MM-DD (derived from `new Date()` local time). */
-function todayLocal(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
 
 /** True when the stored json parses — a corrupt today row counts as a miss. */
 function isParsable(json: string): boolean {

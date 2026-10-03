@@ -130,6 +130,36 @@ a {
   text-underline-offset: 2px;
 }
 
+/* Stale = yesterday's content, recent = an older day than today. Both are
+   amber-tinted so they read differently from the plain outline chip. */
+.badge-stale,
+.badge-recent {
+  border-color: rgba(180, 83, 9, 0.55);
+  background: rgba(217, 119, 6, 0.12);
+  color: #92400e;
+}
+
+.badge-recent {
+  border-style: dashed;
+  border-color: rgba(113, 113, 122, 0.55);
+  background: rgba(113, 113, 122, 0.1);
+  color: #52525b;
+}
+
+@media (prefers-color-scheme: dark) {
+  .badge-stale {
+    border-color: rgba(251, 191, 36, 0.5);
+    background: rgba(251, 191, 36, 0.14);
+    color: #fcd34d;
+  }
+
+  .badge-recent {
+    border-color: rgba(161, 161, 170, 0.5);
+    background: rgba(161, 161, 170, 0.14);
+    color: #d4d4d8;
+  }
+}
+
 /* ── Empty state / 404 ────────────────────────────────────────────────── */
 
 .empty-state {
@@ -250,4 +280,25 @@ a {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 180px;
+}
+
+/*
+ * Narrow viewports: the date + title and the meta chips cannot share one line
+ * without pushing the row past the viewport (the meta column refuses to
+ * shrink), so the meta wraps onto its own line below the title.
+ */
+@media (max-width: 560px) {
+  .archive-row {
+    flex-wrap: wrap;
+    row-gap: 8px;
+  }
+
+  .archive-meta {
+    width: 100%;
+    justify-content: flex-end;
+  }
+
+  .archive-directive {
+    max-width: 45vw;
+  }
 }

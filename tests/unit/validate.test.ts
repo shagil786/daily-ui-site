@@ -253,4 +253,22 @@ describe("validateDocument", () => {
       expect(asThrown.errors.join(" ")).toContain("unknown validation failure");
     }
   });
+
+  it("coerces a non-string Error message to text instead of embedding an object", () => {
+    const odd = new Error("normal");
+    // A hostile/overridden `message` can be any value; the diagnostic must
+    // still be a readable string, never "[object Object]".
+    Object.defineProperty(odd, "message", { value: { nested: true }, enumerable: true });
+    const raw = {
+      get root(): unknown {
+        throw odd;
+      },
+    };
+
+    const result = validateDocument(raw);
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.errors.join(" ")).not.toContain("[object Object]");
+    }
+  });
 });

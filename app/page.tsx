@@ -1,8 +1,9 @@
 import type { Metadata } from "next";
 import { getDay, getDb, getLatestDay, type DayRow } from "../lib/db";
+import { todayLocal } from "../lib/date";
 import { attemptRenderGeneration } from "../lib/generate";
 import type { UiDocument } from "../lib/schema";
-import { DocView, docTitle, parseStoredDoc, todayLocal } from "./doc-view";
+import { DocView, docTitle, parseStoredDoc } from "./doc-view";
 
 /**
  * `/` — today's stored document, falling back to the latest stored row when

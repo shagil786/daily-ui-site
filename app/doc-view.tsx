@@ -137,13 +137,5 @@ export function docTitle(doc: UiDocument): string {
   return typeof raw === "string" && raw.trim() !== "" ? raw : "Daily UI Site";
 }
 
-/**
- * Today's local calendar date as YYYY-MM-DD — same local-time rule as
- * GET /api/today (routes share this semantic, not this module).
- */
-export function todayLocal(): string {
-  const now = new Date();
-  const month = String(now.getMonth() + 1).padStart(2, "0");
-  const day = String(now.getDate()).padStart(2, "0");
-  return `${now.getFullYear()}-${month}-${day}`;
-}
+// The local-calendar "today" rule lives in lib/date.ts so the pages and every
+// route share one implementation.

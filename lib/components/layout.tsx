@@ -190,6 +190,9 @@ export type TimelineProps = z.infer<typeof timelinePropsSchema>;
 export function Timeline({ events }: TimelineProps) {
   return (
     <ol
+      // Explicit role: Safari VoiceOver drops list semantics when the marker
+      // is removed with `list-style: none`.
+      role="list"
       style={{
         display: "flex",
         flexDirection: "column",

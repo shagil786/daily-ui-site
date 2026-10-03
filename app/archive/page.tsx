@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { getDb } from "../../lib/db";
+import { getDb, listDays } from "../../lib/db";
 
 /**
  * `/archive` — server-rendered list of every stored day, newest first:
@@ -14,54 +14,9 @@ export const metadata: Metadata = {
   description: "Every generated UI, newest first.",
 };
 
-type StoredRow = { date: string; json: string; directive: string; stale: number };
-type ArchiveEntry = { date: string; title: string; directive: string; stale: boolean };
-
-/**
- * Mirrors GET /api/archive: `listDays()` parses every title eagerly, so one
- * corrupt row would discard the whole listing — instead this walks the rows
- * and skips only the rows whose json cannot be parsed (same corrupt-row
- * handling as the API: skip, never an unhandled crash).
- */
-function loadEntries(): ArchiveEntry[] {
-  const rows = getDb()
-    .prepare<[], StoredRow>(`SELECT date, json, directive, stale FROM days ORDER BY date DESC`)
-    .all();
-
-  const entries: ArchiveEntry[] = [];
-  for (const row of rows) {
-    let title: string;
-    try {
-      title = titleOf(row.json);
-    } catch {
-      continue; // corrupt row: skip it (API parity, ruling 3)
-    }
-    entries.push({
-      date: row.date,
-      title,
-      directive: row.directive,
-      stale: row.stale !== 0,
-    });
-  }
-  return entries;
-}
-
-/** Title from a stored document; throws when the stored json is corrupt. */
-function titleOf(json: string): string {
-  const parsed: unknown = JSON.parse(json);
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "title" in parsed &&
-    typeof parsed.title === "string"
-  ) {
-    return parsed.title;
-  }
-  return "";
-}
-
 export default function ArchivePage() {
-  const entries = loadEntries();
+  // listDays() skips corrupt rows, so one unreadable row cannot break the listing.
+  const entries = listDays(getDb());
   if (entries.length === 0) {
     return (
       <main className="empty-state" data-testid="empty-state">

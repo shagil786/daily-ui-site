@@ -1,12 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { getDb, listDays } from "../../lib/db";
 import {
-  BOGUS_DATE,
+  bogusDate,
   E2E_DB_PATH,
   GENERATE_SECRET,
-  SEED_DATES,
-  TODAY,
+  seedDates,
   seedFixture,
+  today,
 } from "./seed";
 
 /**
@@ -125,7 +125,7 @@ test.describe("seeded database", () => {
   test("seed the fixture rows", () => {
     seedFixture();
     const rows = listDays(getDb(E2E_DB_PATH));
-    expect(rows.map((row) => row.date)).toEqual([...SEED_DATES]);
+    expect(rows.map((row) => row.date)).toEqual([...seedDates()]);
     expect(rows[0]?.stale).toBe(true);
     expect(rows[0]?.title).toBe("Coastal Dispatch");
   });
@@ -137,13 +137,13 @@ test.describe("seeded database", () => {
 
     const themeRoot = page.getByTestId("theme-root");
     await expect(themeRoot).toBeVisible();
-    await expect(themeRoot).toHaveAttribute("data-date", TODAY);
+    await expect(themeRoot).toHaveAttribute("data-date", today());
     await expect(themeRoot).toHaveAttribute("data-font", "serif");
     await expect(themeRoot).toHaveAttribute("data-dark", "false");
     // Today's row is seeded stale → the stale badge shows; no fallback happened.
     await expect(page.getByTestId("stale-badge")).toBeVisible();
     await expect(page.getByTestId("recent-badge")).toHaveCount(0);
-    await expect(page.getByTestId("date-badge")).toHaveText(TODAY);
+    await expect(page.getByTestId("date-badge")).toHaveText(today());
     await expect(page.getByTestId("archive-link")).toHaveAttribute("href", "/archive");
     await expect(page.getByRole("heading", { level: 1, name: "Coastal Dispatch" })).toBeVisible();
 
@@ -171,29 +171,66 @@ test.describe("seeded database", () => {
     await expect(page.getByTestId("archive-page")).toBeVisible();
 
     const rows = page.getByTestId("archive-row");
-    await expect(rows).toHaveCount(SEED_DATES.length);
+    await expect(rows).toHaveCount(seedDates().length);
 
     const firstRow = rows.first();
-    await expect(firstRow.getByTestId("archive-date")).toHaveText(TODAY);
+    await expect(firstRow.getByTestId("archive-date")).toHaveText(today());
     const firstLink = firstRow.getByRole("link");
-    await expect(firstLink).toHaveAttribute("href", `/archive/${TODAY}`);
+    await expect(firstLink).toHaveAttribute("href", `/archive/${today()}`);
 
     await firstLink.click();
-    await page.waitForURL((url) => url.pathname === `/archive/${TODAY}`);
+    await page.waitForURL((url) => url.pathname === `/archive/${today()}`);
 
-    await expect(page.getByTestId("theme-root")).toHaveAttribute("data-date", TODAY);
-    await expect(page.getByTestId("date-badge")).toHaveText(TODAY);
+    await expect(page.getByTestId("theme-root")).toHaveAttribute("data-date", today());
+    await expect(page.getByTestId("date-badge")).toHaveText(today());
     await expect(page.getByRole("heading", { level: 1, name: "Coastal Dispatch" })).toBeVisible();
 
     await expectNoNoise(noise);
   });
 
+  test("archive rows fit a 390px viewport without overlapping", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/archive");
+
+    const rows = page.getByTestId("archive-row");
+    await expect(rows).toHaveCount(seedDates().length);
+
+    for (let i = 0; i < seedDates().length; i += 1) {
+      const row = rows.nth(i);
+      const rowBox = await row.boundingBox();
+      const linkBox = await row.locator(".archive-row-link").boundingBox();
+      const metaBox = await row.locator(".archive-meta").boundingBox();
+      expect(rowBox).not.toBeNull();
+      expect(linkBox).not.toBeNull();
+      expect(metaBox).not.toBeNull();
+      if (rowBox === null || linkBox === null || metaBox === null) {
+        throw new Error(`archive row ${i} is not laid out`);
+      }
+
+      // Nothing may spill past the viewport (the date chip refuses to shrink,
+      // so a narrow screen used to push the row past the right edge).
+      const rightMost = Math.max(
+        rowBox.x + rowBox.width,
+        linkBox.x + linkBox.width,
+        metaBox.x + metaBox.width,
+      );
+      expect(rightMost, `archive row ${i} overflows 390px`).toBeLessThanOrEqual(390);
+
+      // Title link and meta chips must not sit on top of each other.
+      const sharesX =
+        linkBox.x < metaBox.x + metaBox.width - 1 && metaBox.x < linkBox.x + linkBox.width - 1;
+      const sharesY =
+        linkBox.y < metaBox.y + metaBox.height - 1 && metaBox.y < linkBox.y + linkBox.height - 1;
+      expect(sharesX && sharesY, `archive row ${i} overlaps its meta column`).toBe(false);
+    }
+  });
+
   test("unknown component type degrades to a placeholder, not a crash", async ({ page }) => {
     const noise = trackNoise(page);
-    await page.goto(`/archive/${BOGUS_DATE}`);
+    await page.goto(`/archive/${bogusDate()}`);
 
-    await expect(page.getByTestId("theme-root")).toHaveAttribute("data-date", BOGUS_DATE);
-    await expect(page.getByTestId("date-badge")).toHaveText(BOGUS_DATE);
+    await expect(page.getByTestId("theme-root")).toHaveAttribute("data-date", bogusDate());
+    await expect(page.getByTestId("date-badge")).toHaveText(bogusDate());
     await expect(page.getByTestId("unknown-component")).toBeVisible();
     await expect(page.getByTestId("node-error")).toHaveCount(0);
     // Siblings of the bogus node keep rendering.
@@ -221,8 +258,8 @@ test.describe("seeded database", () => {
       directive: string;
       stale: boolean;
     }>;
-    expect(entries).toHaveLength(SEED_DATES.length);
-    expect(entries.map((entry) => entry.date)).toEqual([...SEED_DATES]);
+    expect(entries).toHaveLength(seedDates().length);
+    expect(entries.map((entry) => entry.date)).toEqual([...seedDates()]);
     for (const entry of entries) {
       expect(Object.keys(entry).sort()).toEqual(["date", "directive", "stale", "title"]);
       expect(entry.title).toBe("Coastal Dispatch");

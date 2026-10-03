@@ -106,6 +106,11 @@ describe("Counter", () => {
 });
 
 describe("Todo", () => {
+  it("keeps list semantics on the item list", () => {
+    const { container } = render(<Todo title="Shopping" />);
+    expect(container.querySelector("ul")?.getAttribute("role")).toBe("list");
+  });
+
   it("typing + Enter adds an item to the list", () => {
     render(<Todo title="Shopping" />);
     expect(screen.queryByText("buy milk")).toBeNull();
@@ -114,6 +119,16 @@ describe("Todo", () => {
     fireEvent.keyDown(input, { key: "Enter" });
     expect(screen.getByText("buy milk")).not.toBeNull();
     expect((input as HTMLInputElement).value).toBe("");
+  });
+
+  it("does not submit while an IME composition is active", () => {
+    render(<Todo title="Shopping" />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "上衣" } });
+    // Enter confirms the IME candidate; it must not add the item.
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(screen.queryByText("上衣")).toBeNull();
+    expect((input as HTMLInputElement).value).toBe("上衣");
   });
 
   it("ignores an empty Enter", () => {

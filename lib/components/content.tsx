@@ -144,6 +144,8 @@ export function Card({ title, body }: CardProps) {
         border: "1px solid rgba(127, 127, 127, 0.35)",
       }}
     >
+      {/* Level 3: a Card usually nests inside a Section (h2), so h3 keeps the
+          outline in order. */}
       <h3
         style={{
           margin: 0,
@@ -209,6 +211,7 @@ export type LinkListProps = z.infer<typeof linkListPropsSchema>;
 export function LinkList({ links }: LinkListProps) {
   return (
     <ul
+      role="list"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -222,7 +225,10 @@ export function LinkList({ links }: LinkListProps) {
         <li key={`${link.href}-${index}`}>
           <a
             href={link.href}
-            rel="noopener noreferrer"
+            // Same-tab navigation: `noopener` is inert without a target, but
+            // `noreferrer` still keeps generated (untrusted) links from
+            // leaking the visitor's referrer.
+            rel="noreferrer"
             style={{ color: "var(--accent, #2563eb)", fontSize: "15px" }}
           >
             {link.label}

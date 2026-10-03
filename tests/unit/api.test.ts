@@ -412,6 +412,19 @@ describe("GET /api/archive/[date]", () => {
     expect(res.status).toBe(500);
     expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "corrupt" });
   });
+
+  it("parseable but non-object json → 500 {error:'corrupt'}, never 200 null", async () => {
+    for (const json of ["null", "[]", '"a string"', "42"]) {
+      const { route, db, handle } = await loadArchiveDay();
+      seed(db, handle, "2026-10-02", { json });
+
+      const routeCtx = { params: Promise.resolve({ date: "2026-10-02" }) };
+      const res = await route.GET(archiveDayRequest("2026-10-02"), routeCtx);
+
+      expect(res.status).toBe(500);
+      expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "corrupt" });
+    }
+  });
 });
 
 // ── POST /api/generate ─────────────────────────────────────────────────────
@@ -533,6 +546,34 @@ describe("POST /api/generate", () => {
     expect(await jsonOf<ErrorBody>(wrongType)).toEqual({ error: "bad-date" });
 
     expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it("non-object body or array body → 400 {error:'bad-date'}, never a silent today default", async () => {
+    const { route, createProvider } = await loadGenerate();
+
+    for (const body of [[], [{ date: "2026-10-05" }], "2026-10-05", 42, true]) {
+      const res = await route.POST(post(body, SECRET));
+      expect(res.status).toBe(400);
+      expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "bad-date" });
+    }
+
+    expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it("a non-GenerationError failure inside the pipeline → structured 500, not a crash", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    const { route, createProvider, handle } = await loadGenerate();
+    createProvider.mockReturnValue({ generate: async () => JSON.stringify(doc("2026-10-11")) });
+    // A database-level failure inside the pipeline (closed connection) is
+    // neither a GenerationError nor a provider-config problem: it must still be
+    // a JSON response, not an unhandled exception.
+    handle.close();
+
+    const res = await route.POST(post({ date: "2026-10-11" }, SECRET));
+
+    expect(res.status).toBe(500);
+    expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "internal-error" });
   });
 
   it("provider config failure (no LLM_PROVIDER) → 502 {error:'generation-failed'} (ruling 4)", async () => {

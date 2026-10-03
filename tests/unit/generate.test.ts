@@ -186,7 +186,7 @@ describe("generateDay", () => {
       stale: false,
     });
     const { provider, generate } = providerMock();
-    generate.mockResolvedValue("junk").mockResolvedValue("junk again");
+    generate.mockResolvedValueOnce("junk").mockResolvedValueOnce("junk again");
 
     const result = await generateDay({ provider, db }, DATE);
 
@@ -224,7 +224,7 @@ describe("generateDay", () => {
   it("garbage twice, empty db → throws GenerationError and stores nothing", async () => {
     const db = getDb(":memory:");
     const { provider, generate } = providerMock();
-    generate.mockResolvedValue("junk").mockResolvedValue("junk again");
+    generate.mockResolvedValueOnce("junk").mockResolvedValueOnce("junk again");
 
     await expect(generateDay({ provider, db }, DATE)).rejects.toThrow(GenerationError);
     expect(generate).toHaveBeenCalledTimes(2);
