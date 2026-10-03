@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { getDay, getDb, getLatestDay, listDays, upsertDay } from "../../lib/db";
+import { getDay, getDb, getLatestDay, listDays, setDbForTesting, upsertDay } from "../../lib/db";
 
 type DayInput = Parameters<typeof upsertDay>[1];
 
@@ -43,6 +43,33 @@ function day(date: string, overrides: Partial<DayInput> = {}): DayInput {
     ...overrides,
   };
 }
+
+describe("setDbForTesting", () => {
+  const override = getDb(":memory:");
+
+  afterEach(() => {
+    setDbForTesting(undefined);
+  });
+
+  it("getDb returns the override while it is set", () => {
+    setDbForTesting(override);
+    upsertDay(override, day("2026-10-01"));
+
+    expect(getDay(getDb(), "2026-10-01")).toBeDefined();
+    expect(listDays(getDb())).toHaveLength(1);
+  });
+
+  it("clearing the override restores normal memoized resolution", () => {
+    setDbForTesting(override);
+    setDbForTesting(undefined);
+
+    const file = tmpDbPath("cleared.db");
+    const resolved = getDb(file);
+    expect(resolved).not.toBe(override);
+    expect(getDb(file)).toBe(resolved); // memoized again, not the override
+    expect(listDays(resolved)).toEqual([]);
+  });
+});
 
 describe("getDb", () => {
   it("returns the same connection for the same path (memoized)", () => {
