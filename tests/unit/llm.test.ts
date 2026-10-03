@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { ExtractError, extractJson } from "../../lib/llm/extract";
+import { createOpenAiProvider } from "../../lib/llm/openai";
 import { createProvider } from "../../lib/llm/provider";
 
 /** Minimal Response stand-in so tests never depend on real network or undici. */
@@ -113,6 +114,125 @@ describe("openai provider", () => {
     expect(body.messages).toEqual(
       expect.arrayContaining([expect.objectContaining({ role: "user", content: "build a hero" })]),
     );
+  });
+
+  it("posts to LLM_BASE_URL with LLM_MODEL when they are configured", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createOpenAiProvider("nvapi-test", {
+      baseUrl: "https://integrate.api.nvidia.com/v1",
+      model: "z-ai/glm-5.3-flash",
+    });
+    await expect(provider.generate("build a hero")).resolves.toBe('{"ok":true}');
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
+    expect(parsedBody(init).model).toBe("z-ai/glm-5.3-flash");
+  });
+
+  it("tolerates a trailing slash on the configured base URL", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = createOpenAiProvider("nvapi-test", {
+      baseUrl: "https://integrate.api.nvidia.com/v1/",
+    });
+    await provider.generate("build a hero");
+
+    expect(fetchMock.mock.calls[0][0]).toBe(
+      "https://integrate.api.nvidia.com/v1/chat/completions",
+    );
+  });
+
+  it("omits max_tokens entirely unless it is configured", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createOpenAiProvider("sk-test").generate("build a hero");
+
+    // OpenAI's newer reasoning models reject the deprecated field, so it is
+    // only ever sent when an operator asks for it.
+    expect(parsedBody(fetchMock.mock.calls[0][1])).not.toHaveProperty("max_tokens");
+  });
+
+  it("sends max_tokens when configured, so a long document is not truncated", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createOpenAiProvider("nvapi-test", { maxTokens: 4096 }).generate("build a hero");
+
+    expect(parsedBody(fetchMock.mock.calls[0][1]).max_tokens).toBe(4096);
+  });
+
+  it("ignores an unparseable max_tokens rather than sending garbage", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createOpenAiProvider("nvapi-test", { maxTokens: Number.NaN }).generate("build a hero");
+
+    expect(parsedBody(fetchMock.mock.calls[0][1])).not.toHaveProperty("max_tokens");
+  });
+
+  it("falls back to the OpenAI endpoint and model when options are omitted", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createOpenAiProvider("sk-test").generate("build a hero");
+
+    expect(fetchMock.mock.calls[0][0]).toBe("https://api.openai.com/v1/chat/completions");
+    expect(parsedBody(fetchMock.mock.calls[0][1]).model).toBe("gpt-5.4");
+  });
+
+  it("reads LLM_BASE_URL, LLM_MODEL, and LLM_MAX_TOKENS from the environment", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: '{"ok":true}' } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const previous = {
+      LLM_BASE_URL: process.env.LLM_BASE_URL,
+      LLM_MODEL: process.env.LLM_MODEL,
+      LLM_MAX_TOKENS: process.env.LLM_MAX_TOKENS,
+    };
+    process.env.LLM_BASE_URL = "https://integrate.api.nvidia.com/v1";
+    process.env.LLM_MODEL = "z-ai/glm-5.3-flash";
+    process.env.LLM_MAX_TOKENS = "4096";
+    try {
+      await createOpenAiProvider("nvapi-test").generate("build a hero");
+    } finally {
+      for (const [key, value] of Object.entries(previous)) {
+        if (value === undefined) {
+          delete process.env[key];
+        } else {
+          process.env[key] = value;
+        }
+      }
+    }
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://integrate.api.nvidia.com/v1/chat/completions");
+    const body = parsedBody(init);
+    expect(body.model).toBe("z-ai/glm-5.3-flash");
+    expect(body.max_tokens).toBe(4096);
   });
 
   it("appends opts.repair as an extra message", async () => {

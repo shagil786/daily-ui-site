@@ -69,12 +69,33 @@ not — pass the variables inline (as above) or export them first.
 Without an API key the site still runs: pages render whatever is in the
 database, the empty state shows otherwise, and generation attempts fail fast.
 
+### Using a different provider
+
+`LLM_PROVIDER=openai` speaks to any OpenAI-compatible endpoint — point it
+somewhere else without touching the code:
+
+```bash
+LLM_PROVIDER=openai
+LLM_BASE_URL=https://integrate.api.nvidia.com/v1
+LLM_MODEL=z-ai/glm-5.3-flash
+LLM_MAX_TOKENS=4096
+LLM_API_KEY=...
+```
+
+The request asks for `response_format: {type: "json_object"}` and a system
+prompt that demands bare JSON, so a host that quietly ignores JSON mode still
+usually returns something parseable; when it does not, the pipeline's repair
+attempt is the safety net.
+
 ## Configuration
 
 | Variable | Purpose |
 | --- | --- |
 | `LLM_PROVIDER` | `openai` or `anthropic` |
 | `LLM_API_KEY` | Provider key. Server-side only — never in the client bundle |
+| `LLM_BASE_URL` | Any OpenAI-compatible host (NVIDIA NIM, Together, a local gateway). Unset means OpenAI; include the version segment, `/chat/completions` is appended |
+| `LLM_MODEL` | Model id. Unset means `gpt-5.4` |
+| `LLM_MAX_TOKENS` | Output cap. **Unset means the field is not sent** (OpenAI's newer reasoning models reject it) — raise it on compatible hosts that truncate by default, or a full-length UI document comes back cut off and fails extraction |
 | `GENERATE_SECRET` | Shared secret for `POST /api/generate`; unset means the route always answers 401 |
 | `DATABASE_PATH` | SQLite file path (default `./data/days.db`) |
 | `PREVIEW_DAILY_CAP` | Previews allowed per UTC day, counted per process (default `50`; only plain positive integers are honoured) |
