@@ -20,6 +20,21 @@ describe("todayLocal", () => {
     }
   });
 
+  it("walks backwards with a positive offset, across a month boundary", () => {
+    expect(todayLocal(new Date(2026, 2, 1), 1)).toBe("2026-02-28");
+    expect(todayLocal(new Date(2026, 0, 1), 1)).toBe("2025-12-31");
+  });
+
+  it("walks forward with a negative offset", () => {
+    expect(todayLocal(new Date(2026, 11, 31), -1)).toBe("2027-01-01");
+  });
+
+  it("does not mutate the caller's Date when offsetting", () => {
+    const now = new Date(2026, 9, 1);
+    todayLocal(now, 5);
+    expect(todayLocal(now)).toBe("2026-10-01");
+  });
+
   it("defaults to the current instant", () => {
     expect(todayLocal()).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   });

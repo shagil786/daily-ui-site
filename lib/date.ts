@@ -12,7 +12,8 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  * Today's local calendar date as YYYY-MM-DD.
  *
  * Local time, not UTC: a visitor in UTC-5 asking for "today" at 23:30 local
- * gets 2026-10-01, not 2026-10-02. `now` is injectable for tests.
+ * gets 2026-10-01, not 2026-10-02. `now` is injectable for tests;
+ * `offsetDays > 0` walks backwards (1 = yesterday), negative walks forwards.
  */
 export function todayLocal(now: Date = new Date(), offsetDays = 0): string {
   if (offsetDays !== 0) {

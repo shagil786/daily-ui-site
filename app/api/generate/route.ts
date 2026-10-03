@@ -100,7 +100,8 @@ export async function POST(request: Request): Promise<Response> {
     // Any other failure (e.g. a database error) stays a structured JSON
     // response like every other error this route returns — but the cause is
     // logged server-side, otherwise an operator sees an unattributable 500.
-    // Only the error's own name/message: never env, never the API key.
+    // Nothing reachable here carries env: provider errors are caught earlier
+    // or folded into a GenerationError, so this is a sqlite/runtime failure.
     console.error("POST /api/generate failed unexpectedly:", err);
     return error({ error: "internal-error" }, 500);
   }

@@ -155,8 +155,9 @@ function toDayRow(row: DayRowStored): DayRow {
 
 /**
  * Title lives only inside the stored json; parse it on read. Returns
- * `undefined` when the json is unparseable (corrupt row) and `""` when it
- * parses but carries no string title.
+ * `undefined` when the row is corrupt — unparseable json OR parseable json
+ * that is not a document (`null`, an array, a bare primitive) — and `""` when
+ * it is a document carrying no string title. Callers skip `undefined` rows.
  */
 function titleFromJson(json: string): string | undefined {
   let parsed: unknown;
