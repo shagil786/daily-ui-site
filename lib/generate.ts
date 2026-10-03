@@ -207,6 +207,10 @@ export type BriefDeps = { provider: LlmProvider };
  * extract → validate, then exactly ONE repair attempt carrying the prior output
  * and the first validation errors. If that also fails there is no earlier day
  * to fall back on and no stale reuse, so this throws `GenerationError`.
+ *
+ * `brief` is NOT length-checked here: callers must bound it (the route enforces
+ * 8–400 characters) so a direct caller cannot stream an unbounded string to the
+ * provider.
  */
 export async function generateFromBrief(
   deps: BriefDeps,
