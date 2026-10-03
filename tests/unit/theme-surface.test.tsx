@@ -42,14 +42,23 @@ describe("ThemeSurface", () => {
    * The full set of theme outputs on the wrapper, in one place on purpose:
    * `--fg`, `--accent`, and the `font-*` class had NO coverage anywhere in the
    * repo, so dropping one of them left every other test green while silently
-   * breaking the theme. The e2e suite covers `data-date`/`data-font`/
-   * `data-dark`, and this test covers everything it does not.
+   * breaking the theme.
+   *
+   * Both class names are asserted as MEMBERS, not as an exact string: a future
+   * caller may legitimately add a class to this wrapper, and an exact match
+   * would fail with a misleading "the theme is broken" signal. `arrayContaining`
+   * still fails the moment either required class is dropped.
    */
   it("emits the font class, all three custom properties, and the data hooks", () => {
     render(<ThemeSurface doc={fixtureDoc()} date="2026-10-03" />);
     const root = screen.getByTestId("theme-root");
 
-    expect(root.className).toBe(`theme-root font-${fixtureDoc().theme.font}`);
+    // Every theme output this wrapper emits: both classes, all three custom
+    // properties, and all three data hooks (the e2e suite also checks some of
+    // these, but this test is the one that fails loudly if one is dropped).
+    expect(root.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["theme-root", `font-${fixtureDoc().theme.font}`]),
+    );
     expect(root.style.getPropertyValue("--bg")).toBe(fixtureDoc().theme.bg);
     expect(root.style.getPropertyValue("--fg")).toBe(fixtureDoc().theme.fg);
     expect(root.style.getPropertyValue("--accent")).toBe(fixtureDoc().theme.accent);
