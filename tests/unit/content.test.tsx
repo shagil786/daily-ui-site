@@ -122,6 +122,11 @@ describe("Card", () => {
     expect(screen.queryByText("card-body")).not.toBeNull();
   });
 
+  it("exposes the title as a level-2 heading", () => {
+    render(<Card title="level-two" body="b" />);
+    expect(screen.queryByRole("heading", { level: 2, name: "level-two" })).not.toBeNull();
+  });
+
   it("requires both title and body", () => {
     expect(cardPropsSchema.safeParse({ title: "t", body: "b" }).success).toBe(true);
     expect(cardPropsSchema.safeParse({ title: "t" }).success).toBe(false);
@@ -130,7 +135,7 @@ describe("Card", () => {
 });
 
 describe("LinkList", () => {
-  it("renders anchors with rel=noopener noreferrer", () => {
+  it("renders same-tab anchors with rel=noreferrer (no inert noopener)", () => {
     render(
       <LinkList
         links={[
@@ -142,8 +147,10 @@ describe("LinkList", () => {
     const anchors = screen.getAllByRole("link");
     expect(anchors).toHaveLength(2);
     expect(anchors[0]?.getAttribute("href")).toBe("https://example.com/docs");
-    expect(anchors[0]?.getAttribute("rel")).toBe("noopener noreferrer");
-    expect(anchors[1]?.getAttribute("rel")).toBe("noopener noreferrer");
+    expect(anchors[0]?.getAttribute("rel")).toBe("noreferrer");
+    expect(anchors[1]?.getAttribute("rel")).toBe("noreferrer");
+    // Same-tab navigation: an external target would break back-button flow.
+    expect(anchors[0]?.getAttribute("target")).toBeNull();
     expect(screen.queryByText("Docs")).not.toBeNull();
     expect(screen.queryByText("Blog")).not.toBeNull();
   });

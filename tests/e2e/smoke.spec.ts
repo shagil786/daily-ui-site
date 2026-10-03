@@ -188,6 +188,41 @@ test.describe("seeded database", () => {
     await expectNoNoise(noise);
   });
 
+  test("archive rows fit a 390px viewport without overlapping", async ({ page }) => {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto("/archive");
+
+    const rows = page.getByTestId("archive-row");
+    await expect(rows).toHaveCount(seedDates().length);
+
+    for (let i = 0; i < seedDates().length; i += 1) {
+      const row = rows.nth(i);
+      const rowBox = await row.boundingBox();
+      const linkBox = await row.locator(".archive-row-link").boundingBox();
+      const metaBox = await row.locator(".archive-meta").boundingBox();
+      expect(rowBox).not.toBeNull();
+      expect(linkBox).not.toBeNull();
+      expect(metaBox).not.toBeNull();
+      if (rowBox === null || linkBox === null || metaBox === null) continue;
+
+      // Nothing may spill past the viewport (the date chip refuses to shrink,
+      // so a narrow screen used to push the row past the right edge).
+      const rightMost = Math.max(
+        rowBox.x + rowBox.width,
+        linkBox.x + linkBox.width,
+        metaBox.x + metaBox.width,
+      );
+      expect(rightMost, `archive row ${i} overflows 390px`).toBeLessThanOrEqual(390);
+
+      // Title link and meta chips must not sit on top of each other.
+      const sharesX =
+        linkBox.x < metaBox.x + metaBox.width - 1 && metaBox.x < linkBox.x + linkBox.width - 1;
+      const sharesY =
+        linkBox.y < metaBox.y + metaBox.height - 1 && metaBox.y < linkBox.y + linkBox.height - 1;
+      expect(sharesX && sharesY, `archive row ${i} overlaps its meta column`).toBe(false);
+    }
+  });
+
   test("unknown component type degrades to a placeholder, not a crash", async ({ page }) => {
     const noise = trackNoise(page);
     await page.goto(`/archive/${bogusDate()}`);

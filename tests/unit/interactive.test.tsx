@@ -116,6 +116,16 @@ describe("Todo", () => {
     expect((input as HTMLInputElement).value).toBe("");
   });
 
+  it("does not submit while an IME composition is active", () => {
+    render(<Todo title="Shopping" />);
+    const input = screen.getByRole("textbox");
+    fireEvent.change(input, { target: { value: "上衣" } });
+    // Enter confirms the IME candidate; it must not add the item.
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(screen.queryByText("上衣")).toBeNull();
+    expect((input as HTMLInputElement).value).toBe("上衣");
+  });
+
   it("ignores an empty Enter", () => {
     render(<Todo />);
     const input = screen.getByRole("textbox");

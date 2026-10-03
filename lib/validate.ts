@@ -30,7 +30,12 @@ function exceptionText(err: unknown): string {
   // `message` getter can be overridden to throw — both must degrade to a
   // static string so the catch handler itself can never throw.
   try {
-    return err instanceof Error ? err.message : String(err);
+    if (err instanceof Error) {
+      // `message` is typed as string but can be overridden with any value;
+      // fall back rather than embed "[object Object]" in a diagnostic.
+      return typeof err.message === "string" ? err.message : "unknown validation failure";
+    }
+    return String(err);
   } catch {
     return "unknown validation failure";
   }

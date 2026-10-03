@@ -144,7 +144,9 @@ export function Card({ title, body }: CardProps) {
         border: "1px solid rgba(127, 127, 127, 0.35)",
       }}
     >
-      <h3
+      {/* Cards nest at any depth, so the title is a level-2 heading rather
+          than skipping levels from an unknown parent. */}
+      <h2
         style={{
           margin: 0,
           fontSize: "1.125rem",
@@ -153,7 +155,7 @@ export function Card({ title, body }: CardProps) {
         }}
       >
         {title}
-      </h3>
+      </h2>
       <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.6, color: "var(--fg, #111111)" }}>
         {body}
       </p>
@@ -209,6 +211,7 @@ export type LinkListProps = z.infer<typeof linkListPropsSchema>;
 export function LinkList({ links }: LinkListProps) {
   return (
     <ul
+      role="list"
       style={{
         display: "flex",
         flexDirection: "column",
@@ -222,7 +225,10 @@ export function LinkList({ links }: LinkListProps) {
         <li key={`${link.href}-${index}`}>
           <a
             href={link.href}
-            rel="noopener noreferrer"
+            // Same-tab navigation: `noopener` is inert without a target, but
+            // `noreferrer` still keeps generated (untrusted) links from
+            // leaking the visitor's referrer.
+            rel="noreferrer"
             style={{ color: "var(--accent, #2563eb)", fontSize: "15px" }}
           >
             {link.label}

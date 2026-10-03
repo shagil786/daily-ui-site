@@ -107,6 +107,9 @@ export function Todo({ title }: TodoProps) {
           onChange={(event) => setDraft(event.target.value)}
           onKeyDown={(event) => {
             if (event.key !== "Enter") return;
+            // Enter confirms an IME candidate; adding the item there would
+            // submit half-typed text.
+            if (event.nativeEvent.isComposing) return;
             event.preventDefault();
             addDraft();
           }}
@@ -122,6 +125,7 @@ export function Todo({ title }: TodoProps) {
         />
       </form>
       <ul
+        role="list"
         style={{
           display: "flex",
           flexDirection: "column",
