@@ -27,7 +27,8 @@ small extraction shared with the existing renderer.
 | `generateFromBrief()` | `lib/generate.ts` | new export, no `db` in its deps type |
 | `buildBriefPrompt()` | `lib/generate.ts` | new private, shares the preamble with `buildPrompt` |
 | `POST /api/preview` | `app/api/preview/route.ts` | new route, unauthenticated by design |
-| `PreviewBox` | `app/preview-box.tsx` | new client component |
+| `PreviewBox` | `app/preview-box.tsx` | new client component, no props |
+| `remainingMs` | `lib/cooldown.ts` | new method, needed to report the wait |
 | `ThemeSurface` | `app/theme-surface.tsx` | extraction from `DocView`, reused by both |
 | `DocView` | `app/doc-view.tsx` | refactored onto `ThemeSurface`, no behaviour change |
 
@@ -96,7 +97,7 @@ Two deliberate choices:
 | --- | --- |
 | Success | `200 { doc }` |
 | `brief` not a string, or trimmed length outside 8–400 characters | `400 { error: "bad-brief" }` |
-| Same client IP within 10 minutes | `429 { error: "cooldown", retryAfterMinutes: N }` |
+| Same client IP within 10 minutes | `429 { error: "cooldown", retryAfterMinutes: N }`, where `N` comes from a new `Cooldown.remainingMs(key)` and is `ceil()`ed, minimum 1 |
 | Global daily cap reached | `429 { error: "daily-cap" }` |
 | `LLM_PROVIDER` / `LLM_API_KEY` unset | `503 { error: "unavailable" }` |
 | Provider or validation failure after the repair attempt | `502 { error: "generation-failed" }` |
@@ -156,9 +157,15 @@ Failures log the brief's length and the error message. Never the brief text
   so the page remains a showcase by default. `<button aria-expanded>` controls it.
 - Inside: a labelled textarea with a live character counter and a Generate button
   that is disabled while the request is in flight, preventing a double spend.
-- **Success**: the preview replaces the document area in place, carrying a
-  `preview` chip instead of a date badge, plus a "Back to today's UI" control. No
-  navigation, no reload. Focus moves to the preview heading.
+- **Success**: the preview renders in the preview region inside the disclosure,
+  carrying a `preview` chip instead of a date badge, plus a "Back to today's UI"
+  control that returns to the collapsed summary. No navigation, no reload, and
+  focus moves to the preview heading.
+
+  The daily document stays server-rendered above the disclosure and is never
+  re-rendered on the client. Swapping the daily area itself would mean passing
+  the stored document into a client component as a prop, which pulls the whole
+  page into hydration for a feature most visitors never use.
 - **Failure**: an inline `role="alert"` region with text mapped per error code —
   cooldown ("try again in N minutes"), daily cap ("that's today's budget — come
   back tomorrow"), `bad-brief` (what is wrong with the input), `unavailable`
