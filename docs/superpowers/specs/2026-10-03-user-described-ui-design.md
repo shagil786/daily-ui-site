@@ -96,7 +96,8 @@ Two deliberate choices:
 | Case | Response |
 | --- | --- |
 | Success | `200 { doc }` |
-| `brief` not a string, or trimmed length outside 8–400 characters | `400 { error: "bad-brief" }` |
+| `brief` not a string, trimmed length outside 8–400 characters, or a brief containing the prompt-fence delimiter | `400 { error: "bad-brief" }` |
+| Request body above `MAX_BODY_BYTES`, declared or streamed | `400 { error: "bad-brief" }` |
 | Same client IP within 10 minutes | `429 { error: "cooldown", retryAfterMinutes: N }`, where `N` comes from a new `Cooldown.remainingMs(key)` and is `ceil()`ed, minimum 1 |
 | Global daily cap reached | `429 { error: "daily-cap" }` |
 | `LLM_PROVIDER` / `LLM_API_KEY` unset | `503 { error: "unavailable" }` |
@@ -148,8 +149,16 @@ guarantee.
 
 ### Logging
 
-Failures log the brief's length and the error message. Never the brief text
-(visitor content) and never the API key.
+Failures log the brief's length and the error's class name. Never the brief
+text (visitor content), never the error message (which can carry the provider
+URL, status, and upstream body), and never the API key.
+
+The body cap exists because `/api/preview` is the only endpoint that reads an
+unauthenticated body — `POST /api/generate` checks the secret first. It is
+derived from the character bound (`MAX_BRIEF_LENGTH * 6 + 64`) because the
+bound counts UTF-16 code units while the cap counts bytes and JSON escaping can
+inflate one code unit to six bytes; a guessed byte cap silently becomes the
+reason a legitimate multi-byte brief is refused.
 
 ## 5. Visitor experience
 
