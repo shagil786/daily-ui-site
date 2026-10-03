@@ -178,16 +178,106 @@ describe("PreviewBox", () => {
 
     const region = await screen.findByTestId("preview-region");
     expect(region.textContent).toContain(fixtureDoc().title);
-    expect(screen.getByText("preview")).not.toBeNull();
+    // The chip carries its OWN class: `.badge-recent` already means "showing
+    // most recent" on the daily page, and one style edit must not restyle both.
+    const chip = screen.getByText("preview");
+    expect(chip.className.split(/\s+/)).toEqual(
+      expect.arrayContaining(["badge", "badge-preview"]),
+    );
+    expect(chip.className.split(/\s+/)).not.toContain("badge-recent");
     // A preview has no stored row, so `data-date` must be ABSENT — never today.
     expect(screen.getByTestId("theme-root").hasAttribute("data-date")).toBe(false);
     // The renderer walked the returned tree, not just the title.
     expect(screen.getByText("Preview heading")).not.toBeNull();
+    // Exactly one <main> on the page: the preview body is a plain div, so a
+    // landmark list never shows two unnamed "main" entries.
+    expect(region.querySelector("main")).toBeNull();
     // Wire contract: POST to the preview route with the brief as JSON.
     const [url, init] = fetchMock.mock.calls[0] ?? [];
     expect(url).toBe("/api/preview");
     expect(init?.method).toBe("POST");
     expect(JSON.parse(String(init?.body))).toEqual({ brief: BRIEF });
+  });
+
+  it("gives the empty field a placeholder hint and keeps the counter out of the live region", () => {
+    const { container } = render(<PreviewBox />);
+    fireEvent.click(screen.getByTestId("preview-toggle"));
+
+    // The placeholder is the affordance hint for an unlabelled textarea (its
+    // accessible name comes from aria-label).
+    expect(screen.getByTestId("preview-input").getAttribute("placeholder")).toBeTruthy();
+    // A per-keystroke live region would announce every character typed.
+    const count = container.querySelector(".preview-count");
+    expect(count?.hasAttribute("aria-live")).toBe(false);
+    expect(count?.textContent).toBe(`0/${400}`);
+  });
+
+  it("moves focus to the preview heading when a document arrives", async () => {
+    render(<PreviewBox />);
+    fillBrief();
+    await generate();
+
+    const region = await screen.findByTestId("preview-region");
+    const heading = region.querySelector("h2");
+    // Focusable programmatically, but NOT a tab stop.
+    expect(heading?.getAttribute("tabindex")).toBe("-1");
+    expect(document.activeElement).toBe(heading);
+  });
+
+  it("returns focus to the textarea when the preview is dismissed", async () => {
+    render(<PreviewBox />);
+    fillBrief();
+    await generate();
+    await screen.findByTestId("preview-region");
+
+    // Clicking back unmounts the focused button; without a restore, a keyboard
+    // user is dropped to <body> and must Tab through the whole page again.
+    fireEvent.click(screen.getByTestId("preview-back"));
+    expect(document.activeElement).toBe(screen.getByTestId("preview-input"));
+  });
+
+  it("falls back to the generic message for an unrecognised error code", async () => {
+    fetchMock.mockResolvedValue(
+      jsonResponse({ error: "teapot", detail: "npm ERR! 418" }, 418),
+    );
+    render(<PreviewBox />);
+    fillBrief();
+    await generate();
+
+    const alert = await screen.findByTestId("preview-error");
+    expect(alert.textContent).toBe("Couldn't generate that right now");
+    // Nothing from an unrecognised body may reach the visitor.
+    expect(alert.textContent).not.toContain("teapot");
+    expect(alert.textContent).not.toContain("npm ERR");
+  });
+
+  it("falls back to the generic message when a 200 body is not document-shaped", async () => {
+    fetchMock.mockResolvedValue(jsonResponse({ doc: { version: 1 } }, 200));
+    render(<PreviewBox />);
+    fillBrief();
+    await generate();
+
+    const alert = await screen.findByTestId("preview-error");
+    expect(alert.textContent).toContain("Couldn't generate that right now");
+    expect(screen.queryByTestId("preview-region")).toBeNull();
+    // The visitor keeps their brief and can try again.
+    expect((screen.getByTestId("preview-input") as HTMLTextAreaElement).value).toBe(BRIEF);
+  });
+
+  it("ignores a retryAfterMinutes that is not a positive integer", async () => {
+    for (const minutes of [-3, 7.5]) {
+      fetchMock.mockResolvedValue(
+        jsonResponse({ error: "cooldown", retryAfterMinutes: minutes }, 429),
+      );
+      render(<PreviewBox />);
+      fillBrief();
+      await generate();
+
+      // "Try again in -3 minutes" / "7.5 minutes" would be nonsense copy.
+      const alert = await screen.findByTestId("preview-error");
+      expect(alert.textContent).toBe("Try again in a few minutes");
+      cleanup();
+    }
   });
 
   it("collapses to a summary quoting the brief and returns on back", async () => {

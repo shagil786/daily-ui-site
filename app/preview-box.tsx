@@ -60,8 +60,8 @@ async function readBody(response: Response): Promise<unknown> {
 
 /**
  * Error body → visitor-facing message. Anything unrecognised (an unknown code,
- * a non-object body, a missing `retryAfterMinutes`) falls back to the generic
- * copy rather than echoing the response.
+ * a non-object body, a missing or nonsensical `retryAfterMinutes`) falls back
+ * to the generic copy rather than echoing the response.
  */
 function errorMessage(body: unknown): string {
   if (typeof body !== "object" || body === null) {
@@ -69,7 +69,14 @@ function errorMessage(body: unknown): string {
   }
   const { error, retryAfterMinutes } = body as { error?: unknown; retryAfterMinutes?: unknown };
   if (error === "cooldown") {
-    return typeof retryAfterMinutes === "number"
+    // Whole positive minutes only: `-3` or `7.5` would render as nonsense copy
+    // ("Try again in -3 minutes"), and the route's own `Math.max(1, …)` ceiling
+    // means anything below 1 is not a real wait.
+    const usable =
+      typeof retryAfterMinutes === "number" &&
+      Number.isInteger(retryAfterMinutes) &&
+      retryAfterMinutes > 0;
+    return usable
       ? `Try again in ${retryAfterMinutes} minutes`
       : "Try again in a few minutes";
   }
@@ -105,13 +112,19 @@ export function PreviewBox(): JSX.Element {
   const [pending, setPending] = useState(false);
   const [result, setResult] = useState<UiDocument | null>(null);
   const [error, setError] = useState<string | null>(null);
-  // Focus lands on the preview's heading once a document exists, so the screen
-  // reader follows the swap from the textarea to the rendered UI.
+  // Focus follows both directions of the swap: onto the preview's heading once a
+  // document exists, and back onto the textarea when the preview is dismissed
+  // (the focused back button unmounts, which would otherwise strand focus on
+  // <body> and send a keyboard user back to the top of the document).
   const headingRef = useRef<HTMLHeadingElement>(null);
+  const inputRef = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
     if (result !== null) {
       headingRef.current?.focus();
+    } else {
+      // Null on the initial closed render, where there is no field to focus.
+      inputRef.current?.focus();
     }
   }, [result]);
 
@@ -164,6 +177,8 @@ export function PreviewBox(): JSX.Element {
               className="preview-input"
               data-testid="preview-input"
               aria-label="Describe the UI you want to see"
+              placeholder="e.g. a calm invoice dashboard for freelancers"
+              ref={inputRef}
               value={brief}
               maxLength={MAX_BRIEF_LENGTH}
               onChange={(event) => {
@@ -176,7 +191,9 @@ export function PreviewBox(): JSX.Element {
               }}
             />
             <div className="preview-actions">
-              <span className="preview-count" aria-live="polite">
+              {/* Visible count, deliberately NOT a live region: it changes on
+                  every keystroke and "12/400" means nothing announced. */}
+              <span className="preview-count">
                 {brief.length}/{MAX_BRIEF_LENGTH}
               </span>
               <button
@@ -221,11 +238,15 @@ export function PreviewBox(): JSX.Element {
                   <h2 className="preview-region-title" ref={headingRef} tabIndex={-1}>
                     {result.title}
                   </h2>
-                  <span className="badge badge-recent">preview</span>
+                  <span className="badge badge-preview">preview</span>
                 </div>
-                <main className="doc-body">
+                {/* A plain div, never a second <main>: the page already has
+                    exactly one (the daily document or the empty state) and
+                    neither is named, so a second one would be an indistinguishable
+                    landmark. Styling is class-based, so the box is unchanged. */}
+                <div className="doc-body">
                   <Renderer node={result.root} />
-                </main>
+                </div>
               </ThemeSurface>
             </div>
           </div>

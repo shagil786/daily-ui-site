@@ -146,6 +146,16 @@ a {
   color: #52525b;
 }
 
+/* Preview chips get their own class rather than reusing `.badge-recent`:
+   "recent" already means "showing most recent" on the daily page, so sharing
+   it would let a later style edit restyle the wrong chip. */
+.badge-preview {
+  border-color: rgba(180, 83, 9, 0.55);
+  background: rgba(217, 119, 6, 0.12);
+  color: #92400e;
+  flex-shrink: 0;
+}
+
 @media (prefers-color-scheme: dark) {
   .badge-stale {
     border-color: rgba(251, 191, 36, 0.5);
@@ -184,6 +194,20 @@ a {
   text-decoration: underline;
   text-underline-offset: 2px;
   font-size: 14px;
+}
+
+/*
+ * Empty state + preview box: `.empty-state`'s own full-viewport height would put
+ * the site's only interactive affordance a whole screen below a message that
+ * says nothing has been generated yet, so the pair shares the first viewport.
+ * Scoped to this pairing on purpose — a POPULATED page keeps `.theme-root`'s
+ * full-height daily document by design, and the disclosure below it is an
+ * accepted discoverability limit.
+ */
+.empty-state:has(+ .preview-box) {
+  min-height: 0;
+  padding-top: 96px;
+  padding-bottom: 24px;
 }
 
 /* ── Archive list ─────────────────────────────────────────────────────── */
