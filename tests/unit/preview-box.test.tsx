@@ -1,4 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from "vitest";
 import { PreviewBox } from "../../app/preview-box";
 import type { UiDocument } from "../../lib/schema";
@@ -310,5 +312,46 @@ describe("PreviewBox", () => {
     expect(alert.textContent).not.toContain("network down");
     expect(screen.queryByTestId("preview-region")).toBeNull();
     expect(screen.getByTestId("preview-input")).not.toBeNull();
+  });
+});
+
+/**
+ * The preview chip is a stylesheet contract, not a component one: jsdom does
+ * not apply `globals.css`, so the rendered class list is all a DOM test can
+ * see. This block reads the actual rule instead, so the failure mode this pins
+ * cannot come back unnoticed — a hardcoded `color` in `.badge-preview` overrides
+ * `.badge`'s `var(--fg, …)` and drops the chip onto whatever the GENERATED
+ * theme's foreground happens to be (light `#f5f5ff` text on a dark theme is
+ * invisible; a hardcoded dark amber on a dark theme is ~2:1).
+ */
+describe("preview chip styling (app/globals.css)", () => {
+  // vitest runs from the project root; `import.meta.url` is not a file: URL
+  // under the jsdom transform, so resolve from cwd like db.test.ts does.
+  const css = readFileSync(path.join(process.cwd(), "app/globals.css"), "utf8");
+
+  /** The declaration block of one top-level class rule. */
+  function ruleBody(selector: string): string {
+    const start = css.indexOf(`${selector} {`);
+    expect(start, `missing rule ${selector}`).toBeGreaterThan(-1);
+    return css.slice(start, css.indexOf("}", start));
+  }
+
+  it("never hardcodes the chip's foreground colour, so .badge's var(--fg) applies", () => {
+    const body = ruleBody(".badge-preview");
+    expect(body).toMatch(/background:/);
+    expect(body).toMatch(/border-color:/);
+    expect(body).not.toMatch(/(^|[\s;{])color\s*:/);
+  });
+
+  it("uses a neutral tint rather than the stale badge's amber warning colour", () => {
+    const preview = ruleBody(".badge-preview");
+    // The amber family belongs to "yesterday's"; a preview is neither stale nor
+    // a warning, and must not be mistaken for either.
+    expect(preview).not.toMatch(/217,\s*119,\s*6/);
+    expect(preview).not.toMatch(/#92400e/);
+    // Amber stays where it belongs: the grouped `.badge-stale, .badge-recent`
+    // rule (matched on the group, since `.badge-stale` has no standalone block
+    // outside the dark-scheme query).
+    expect(css).toMatch(/\.badge-stale,\s*\.badge-recent \{[^}]*217,\s*119,\s*6/);
   });
 });

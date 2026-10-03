@@ -146,13 +146,23 @@ a {
   color: #52525b;
 }
 
-/* Preview chips get their own class rather than reusing `.badge-recent`:
-   "recent" already means "showing most recent" on the daily page, so sharing
-   it would let a later style edit restyle the wrong chip. */
+/*
+ * Preview chips get their own class rather than reusing `.badge-recent`:
+ * "recent" already means "showing most recent" on the daily page, so sharing
+ * it would let a later style edit restyle the wrong chip.
+ *
+ * The FOREGROUND is deliberately left to `.badge` (`color: var(--fg, #111111)`):
+ * this chip renders inside `ThemeSurface`, whose `--fg` comes from the
+ * GENERATED document's theme, so any hardcoded colour here would override the
+ * theme pair the file's own comment promises and can land at ~2:1 on a dark
+ * theme. A neutral translucent tint is the rest of the chip — it reads as a
+ * distinct, neutral "this is a preview" marker in BOTH colour schemes without
+ * a `prefers-color-scheme` entry, and it is not the amber "yesterday's"
+ * warning. Zinc, as in `.badge-recent` but solid-filled rather than dashed.
+ */
 .badge-preview {
-  border-color: rgba(180, 83, 9, 0.55);
-  background: rgba(217, 119, 6, 0.12);
-  color: #92400e;
+  border-color: rgba(113, 113, 122, 0.55);
+  background: rgba(113, 113, 122, 0.16);
   flex-shrink: 0;
 }
 
