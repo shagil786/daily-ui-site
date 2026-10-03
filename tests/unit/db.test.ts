@@ -152,6 +152,29 @@ describe("listDays", () => {
     expect(rows.map((r) => r.stale)).toEqual([false, false, true]);
     expect(typeof rows[1]?.stale).toBe("boolean");
   });
+
+  it("returns an empty title for parseable json without a string title", () => {
+    const db = getDb(":memory:");
+    upsertDay(db, day("2026-10-02", { json: JSON.stringify({ version: 1 }) }));
+    upsertDay(db, day("2026-10-01", { json: JSON.stringify({ title: 42 }) }));
+
+    expect(listDays(db).map((r) => r.title)).toEqual(["", ""]);
+  });
+
+  it("skips rows whose json is unparseable and keeps the rest", () => {
+    const db = getDb(":memory:");
+    upsertDay(db, day("2026-10-03", { json: "{not json" }));
+    upsertDay(db, day("2026-10-02", { json: JSON.stringify({ title: "Good" }) }));
+    upsertDay(db, day("2026-10-01", { json: "" }));
+
+    expect(listDays(db).map((r) => r.date)).toEqual(["2026-10-02"]);
+  });
+
+  it("does not throw when every row is corrupt", () => {
+    const db = getDb(":memory:");
+    upsertDay(db, day("2026-10-02", { json: "}{" }));
+    expect(listDays(db)).toEqual([]);
+  });
 });
 
 describe("empty database", () => {

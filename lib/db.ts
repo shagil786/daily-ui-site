@@ -136,21 +136,35 @@ export function listDays(
   const rows = db
     .prepare<[], DayListStored>(`SELECT date, json, directive, stale FROM days ORDER BY date DESC`)
     .all();
-  return rows.map((row) => ({
-    date: row.date,
-    directive: row.directive,
-    stale: row.stale !== 0,
-    title: titleFromJson(row.json),
-  }));
+  const days: Array<Pick<DayRow, "date" | "directive" | "stale"> & { title: string }> = [];
+  for (const row of rows) {
+    const title = titleFromJson(row.json);
+    // A row whose stored json is corrupt cannot be listed; skip that row only
+    // (listings stay available) instead of discarding every row.
+    if (title === undefined) {
+      continue;
+    }
+    days.push({ date: row.date, directive: row.directive, stale: row.stale !== 0, title });
+  }
+  return days;
 }
 
 function toDayRow(row: DayRowStored): DayRow {
   return { ...row, stale: row.stale !== 0 };
 }
 
-/** Title lives only inside the stored json; parse it on read. */
-function titleFromJson(json: string): string {
-  const parsed: unknown = JSON.parse(json);
+/**
+ * Title lives only inside the stored json; parse it on read. Returns
+ * `undefined` when the json is unparseable (corrupt row) and `""` when it
+ * parses but carries no string title.
+ */
+function titleFromJson(json: string): string | undefined {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(json);
+  } catch {
+    return undefined;
+  }
   if (
     typeof parsed === "object" &&
     parsed !== null &&
