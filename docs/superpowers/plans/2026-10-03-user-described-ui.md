@@ -345,7 +345,7 @@ git commit -m "feat: unauthenticated preview endpoint with per-IP cooldown and d
 - Modify: `app/doc-view.tsx` (render `ThemeSurface` instead of its own wrapper)
 
 **Interfaces:**
-- Consumes: `Renderer` from `lib/renderer`, `type UiDocument` from `lib/schema`, `type CSSProperties` from react.
+- Consumes: `type UiDocument` from `lib/schema` and `type CSSProperties` / `ReactNode` from react. Note `Renderer` is **not** consumed here — `DocView` renders it inside the `children` it passes, so importing it would be dead.
 - Produces:
   ```tsx
   // app/theme-surface.tsx
@@ -386,7 +386,7 @@ Expected: FAIL — module not found.
 
 - [ ] **Step 3: Create `app/theme-surface.tsx`**
 
-Move `themeVars()` and the wrapper div out of `doc-view.tsx` verbatim. `badge` renders inside the existing `corner-badges` container; when absent, render that container empty rather than omitting it, so the e2e badge hooks keep working.
+Move `themeVars()` and the wrapper div out of `doc-view.tsx` verbatim. `ThemeSurface` does **not** own the `corner-badges` container — that block also holds the `/archive` link, which a preview has no use for — so it renders nothing of its own inside the wrapper beyond `children`. `DocView` keeps the container and passes the whole block as `children`, leaving the stored-row DOM byte-identical. (This step originally described a `badge` prop and contradicted the Interfaces block above; the Interfaces block is correct.)
 
 - [ ] **Step 4: Refactor `DocView` onto it**
 
