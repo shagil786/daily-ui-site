@@ -45,12 +45,21 @@ const MIN_BRIEF_LENGTH = 8;
 /** ...and at most this many, so one request cannot stream an unbounded prompt. */
 const MAX_BRIEF_LENGTH = 400;
 /**
- * Hard ceiling on the bytes read out of a request body. Deliberately generous
- * next to `MAX_BRIEF_LENGTH`: JSON escaping means the encoded body of a
- * maximum-length brief is larger than 400 bytes, and this must never be the
- * reason a legitimate brief is refused. 1 KB leaves ample headroom.
+ * Hard ceiling on the bytes read out of a request body, DERIVED from
+ * `MAX_BRIEF_LENGTH` rather than guessed — the two are different units, and a
+ * guess is what made this bug: a fixed 1 KB refused a maximum-length Chinese or
+ * Japanese brief (the client accepts it; the server called it `bad-brief`, whose
+ * copy tells its author they wrote too little).
+ *
+ * `MAX_BRIEF_LENGTH` counts UTF-16 code units of the trimmed brief; this counts
+ * bytes of the JSON body wrapping it. The two are not comparable directly
+ * because JSON escaping can inflate ONE character to SIX bytes (a control
+ * character becomes the 6-byte `\uXXXX`). So the true worst case is 6 bytes per
+ * character unit — 400 × 3 for CJK, 400 × 6 escaped — plus the `{"brief":""}`
+ * envelope, and the cap has to be sized from the character bound or it will
+ * silently become the reason a legitimate brief is refused.
  */
-const MAX_BODY_BYTES = 1024;
+const MAX_BODY_BYTES = MAX_BRIEF_LENGTH * 6 + 64;
 /** One generation per client per 10 minutes. */
 const PREVIEW_COOLDOWN_MS = 10 * 60 * 1000;
 /** Generations allowed per UTC day when `PREVIEW_DAILY_CAP` is unusable. */

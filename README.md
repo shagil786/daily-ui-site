@@ -170,10 +170,11 @@ than by a credential:
   more. **`PREVIEW_DAILY_CAP` is the only hard ceiling on preview spend** — run a
   single instance if that ceiling has to hold.
 
-Those two counters bound `/api/preview` and nothing else. Two other paths spend
+Those two counters bound `/api/preview` and nothing else. Other paths spend
 credits outside them: the secretless render-time attempt above (one per date per
-10 minutes), and `POST /api/generate` behind `GENERATE_SECRET`. `PREVIEW_DAILY_CAP`
-is not a budget for the site, only for previews.
+10 minutes), `POST /api/generate` behind `GENERATE_SECRET`, and the
+`scripts/generate.ts` CLI backfill (operator-initiated, so unbudgeted by design).
+`PREVIEW_DAILY_CAP` is not a budget for the site, only for previews.
 
 ## Pages
 
