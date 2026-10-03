@@ -65,4 +65,38 @@ describe("Cooldown", () => {
     expect(cooldown.remainingMs("key-0", 5000)).toBe(0);
     expect(cooldown.size).toBe(50);
   });
+
+  it("release frees a key so it can be consumed again immediately", () => {
+    const cooldown = new Cooldown(1000);
+    cooldown.tryConsume("a", 0);
+    expect(cooldown.tryConsume("a", 10)).toBe(false);
+
+    cooldown.release("a");
+
+    expect(cooldown.tryConsume("a", 10)).toBe(true);
+    expect(cooldown.size).toBe(1);
+  });
+
+  it("releasing an unknown key is a no-op", () => {
+    const cooldown = new Cooldown(1000);
+    cooldown.tryConsume("a", 0);
+
+    cooldown.release("never-seen");
+
+    expect(cooldown.size).toBe(1);
+    expect(cooldown.remainingMs("never-seen", 0)).toBe(0);
+    expect(cooldown.remainingMs("a", 0)).toBe(1000); // untouched
+  });
+
+  it("release leaves other keys' windows intact", () => {
+    const cooldown = new Cooldown(1000);
+    cooldown.tryConsume("a", 0);
+    cooldown.tryConsume("b", 0);
+
+    cooldown.release("a");
+
+    expect(cooldown.remainingMs("a", 0)).toBe(0);
+    expect(cooldown.remainingMs("b", 0)).toBe(1000);
+    expect(cooldown.tryConsume("b", 10)).toBe(false);
+  });
 });

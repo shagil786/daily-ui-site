@@ -1,6 +1,6 @@
 import { Cooldown } from "../../../lib/cooldown";
 import { todayLocal } from "../../../lib/date";
-import { GenerationError, generateFromBrief } from "../../../lib/generate";
+import { generateFromBrief } from "../../../lib/generate";
 import { createProvider, type LlmProvider, type LlmProviderName } from "../../../lib/llm/provider";
 
 /**
@@ -16,9 +16,10 @@ import { createProvider, type LlmProvider, type LlmProviderName } from "../../..
  *   1. body shape → `{brief: string}` with a trimmed length of 8–400
  *      characters and no prompt-fence delimiter (400 bad-brief)
  *   2. per-client cooldown → one generation per client per 10 minutes
- *      (429 cooldown, with `retryAfterMinutes`)
+ *      (429 cooldown, with `retryAfterMinutes`). BEST-EFFORT ONLY — see below.
  *   3. per-process daily cap → `PREVIEW_DAILY_CAP` (default 50) generations per
- *      UTC calendar day (429 daily-cap)
+ *      UTC calendar day (429 daily-cap). This is the ONLY hard ceiling on
+ *      spend; the cooldown above is not one.
  *   4. provider config from server-held `LLM_PROVIDER`/`LLM_API_KEY`, missing
  *      or empty → 503 unavailable without constructing a provider
  *   5. generation → 200 `{doc}`, or 502 generation-failed
@@ -27,7 +28,8 @@ import { createProvider, type LlmProvider, type LlmProviderName } from "../../..
  * surfaced: a `GenerationError` message carries the provider's endpoint URL,
  * its HTTP status, a slice of the upstream response body, and model-controlled
  * strings, all of which would leak to an unauthenticated caller. The cause is
- * logged server-side instead, and only ever the error and the brief's LENGTH.
+ * logged server-side instead, and only ever the class name and the brief's
+ * LENGTH.
  */
 
 /** A brief must be at least this many characters after trimming to be usable. */
@@ -94,9 +96,21 @@ async function resolveBrief(request: Request): Promise<BriefResolution> {
 }
 
 /**
- * The bucket key for a request: the FIRST hop of `x-forwarded-for` (the client
- * as seen by the outermost trusted proxy), else `x-real-ip`, else the single
- * "local" bucket every header-less caller shares.
+ * The bucket key for a request: the FIRST hop of `x-forwarded-for`, else
+ * `x-real-ip`, else the single "local" bucket every header-less caller shares.
+ *
+ * FIRST-HOP TRUST IS NOT A SECURITY BOUNDARY. This identifies a client well
+ * enough to be convenient and to stop casual repeat-visitors, and that is all
+ * it does. The per-IP cooldown can be bypassed at will by a caller that varies
+ * `x-forwarded-for` — and a correctly configured reverse proxy does NOT save
+ * it: such proxies APPEND the address they observed to whatever the client
+ * already sent, so a client that sends `X-Forwarded-For: <anything>` ends up
+ * with `<anything>, <real-ip>` and this first hop is still the attacker's value.
+ * Anyone calling the origin directly has the same freedom. So the cooldown is
+ * best-effort, must never be treated as a spend ceiling, and must not be
+ * load-bearing for cost control: the daily cap is what actually bounds cost,
+ * and the cap-rejection path releases the cooldown slot for exactly this
+ * reason.
  */
 function clientIp(request: Request): string {
   const forwarded = request.headers.get("x-forwarded-for");
@@ -122,13 +136,26 @@ function utcDay(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-/** `PREVIEW_DAILY_CAP` when it is a positive integer, else DEFAULT_DAILY_CAP. */
+/**
+ * `PREVIEW_DAILY_CAP` when it is a plain positive integer, else
+ * DEFAULT_DAILY_CAP.
+ *
+ * Plain digits only, deliberately: `Number` also parses "1e3" and "0x10", so a
+ * bare integer check would honour 1000 and 16 — 20× the documented default —
+ * for what is almost certainly a typo in an ops-facing spend ceiling. An
+ * unrecognised value falls back to the safe default rather than to whatever the
+ * typo parsed to.
+ */
 function dailyCap(): number {
   const raw = process.env.PREVIEW_DAILY_CAP;
   if (raw === undefined) {
     return DEFAULT_DAILY_CAP;
   }
-  const parsed = Number(raw);
+  const trimmed = raw.trim();
+  if (!/^\d+$/.test(trimmed)) {
+    return DEFAULT_DAILY_CAP;
+  }
+  const parsed = Number(trimmed);
   if (!Number.isInteger(parsed) || parsed <= 0) {
     return DEFAULT_DAILY_CAP;
   }
@@ -161,6 +188,11 @@ export async function POST(request: Request): Promise<Response> {
     capCount = 0;
   }
   if (capCount >= dailyCap()) {
+    // The cooldown was consumed above, but this caller is getting no generation
+    // for it. Give the slot back: keeping it would mean one Map entry per
+    // request from an UNAUTHENTATED caller rotating x-forwarded-for, growing
+    // memory in proportion to rejected traffic rather than to real spend.
+    previewCooldown.release(ip);
     return error({ error: "daily-cap" }, 429);
   }
   capCount += 1;
@@ -187,21 +219,24 @@ export async function POST(request: Request): Promise<Response> {
 
   // 5. Run the pipeline. `generateFromBrief` throws GenerationError only after
   //    its own single repair attempt, and `runAttempt` already folds provider
-  //    throws into it — so the message here can carry upstream detail. Neither
-  //    branch returns it.
+  //    throws into it — so the message here can carry upstream detail. It is
+  //    never returned to the caller.
   try {
     const doc = await generateFromBrief({ provider }, brief, todayLocal());
     return Response.json({ doc });
   } catch (err) {
-    if (!(err instanceof GenerationError)) {
-      // Unreachable via the provider path (see above); anything else is an
-      // unexpected fault. Log the class and the brief's LENGTH — never the
-      // brief text (it is the visitor's, and untrusted) and never the key.
-      console.error(
-        `preview generation failed (brief length ${brief.length}):`,
-        err instanceof Error ? err.constructor.name : typeof err,
-      );
-    }
+    // Log the class name and the brief's LENGTH, and nothing else. Both
+    // branches log: `generateFromBrief` already folds every provider throw
+    // into a GenerationError, so quota exhaustion, upstream 429s and network
+    // faults all arrive HERE — an unconditional log is the only way those
+    // failures leave a server-side trace. Neither `err.message` (it carries
+    // the endpoint URL, the HTTP status, an upstream body slice and
+    // model-controlled strings), nor the brief text (the visitor's, untrusted),
+    // nor the API key is ever written.
+    console.error(
+      `preview generation failed (brief length ${brief.length}):`,
+      err instanceof Error ? err.constructor.name : typeof err,
+    );
     return error({ error: "generation-failed" }, 502);
   }
 }

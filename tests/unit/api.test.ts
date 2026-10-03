@@ -205,6 +205,23 @@ async function jsonOf<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
+/** Everything a console.error spy was called with, flattened into one string. */
+function loggedText(spy: { mock: { calls: unknown[][] } }): string {
+  return spy.mock.calls
+    .flat()
+    .map((arg) => (typeof arg === "string" ? arg : String(arg)))
+    .join(" ");
+}
+
+/** A preview request with a RAW body, so a body that is not JSON at all reaches the route. */
+function previewRaw(body: string, opts: { ip?: string } = {}): Request {
+  const headers: Record<string, string> = {};
+  if (opts.ip !== undefined) {
+    headers["x-forwarded-for"] = opts.ip;
+  }
+  return new Request("http://x", { method: "POST", headers, body });
+}
+
 function archiveDayRequest(date: string): Request {
   return new Request(`http://x/api/archive/${date}`);
 }
@@ -768,9 +785,10 @@ describe("POST /api/preview", () => {
     expect(second.status).toBe(429);
     const body = await jsonOf<{ error: string; retryAfterMinutes: number }>(second);
     expect(body.error).toBe("cooldown");
-    expect(Number.isInteger(body.retryAfterMinutes)).toBe(true);
-    expect(body.retryAfterMinutes).toBeGreaterThanOrEqual(1);
-    expect(body.retryAfterMinutes).toBeLessThanOrEqual(10);
+    // A window consumed milliseconds ago is still ~10 minutes of waiting, so
+    // this is exactly 10: a remainingMs bug returning 0 or a wrong window
+    // cannot hide behind a loose range assertion.
+    expect(body.retryAfterMinutes).toBe(10);
     // 429 short-circuits before the provider is even configured.
     expect(createProvider).toHaveBeenCalledTimes(1);
   });
@@ -806,8 +824,52 @@ describe("POST /api/preview", () => {
     expect(await jsonOf<ErrorBody>(second)).toEqual({ error: "daily-cap" });
   });
 
-  it("falls back to a daily cap of 50 when PREVIEW_DAILY_CAP is not a positive number", async () => {
-    for (const raw of ["abc", "0"]) {
+  it("a cap-rejected request does not consume the client's cooldown", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    process.env.PREVIEW_DAILY_CAP = "1";
+    const { route, createProvider } = await loadPreview();
+    answering(createProvider, localToday());
+
+    const first = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.1" }));
+    expect(first.status).toBe(200);
+
+    // A FRESH ip, so this passes the cooldown and is refused by the cap. The
+    // cooldown entry it just created must be undone: it bought no generation,
+    // and keeping it is how an unauthenticated caller grows the cooldown map
+    // one entry per request without ever being limited.
+    const capped = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.2" }));
+    expect(capped.status).toBe(429);
+    expect(await jsonOf<ErrorBody>(capped)).toEqual({ error: "daily-cap" });
+
+    // Observable proof, no internals exported: with the cap lifted, that same
+    // ip's next request is admitted immediately instead of being told to wait.
+    process.env.PREVIEW_DAILY_CAP = "5";
+    const afterCap = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.2" }));
+
+    expect(afterCap.status).toBe(200);
+  });
+
+  it("a body that is not JSON at all → 400 { error: 'bad-brief' }, never a 500", async () => {
+    const { route, createProvider } = await loadPreview();
+
+    // These bypass JSON.stringify entirely, so the route's parse catch is the
+    // only thing standing between garbage and an unhandled SyntaxError.
+    for (const raw of ["not json", "", "{", "[1,2", "undefined", "NaN"]) {
+      const res = await route.POST(previewRaw(raw));
+      expect(res.status, `body ${JSON.stringify(raw)}`).toBe(400);
+      expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "bad-brief" });
+    }
+
+    expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a daily cap of 50 when PREVIEW_DAILY_CAP is not a plain positive integer", async () => {
+    // "1e3" and "0x10" are Number()-parsable integers, so a bare
+    // isInteger/>0 check would honour them and silently admit 1000 or 16 — 20×
+    // the documented default — for what is almost certainly a typo in an
+    // ops-facing spend ceiling. Only plain digits are accepted.
+    for (const raw of ["abc", "0", "1e3", "0x10", "-5", "3.5", "  "]) {
       process.env.LLM_PROVIDER = "openai";
       process.env.LLM_API_KEY = "test-key";
       process.env.PREVIEW_DAILY_CAP = raw;
@@ -902,6 +964,81 @@ describe("POST /api/preview", () => {
     expect((await jsonOf<ErrorBody>(localAgain)).error).toBe("cooldown");
 
     expect(createProvider).toHaveBeenCalledTimes(2);
+  });
+
+  it("a GenerationError failure is logged server-side, class name only", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "sk-super-secret-key";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const brief = "a neon dashboard";
+    try {
+      const { route, createProvider } = await loadPreview();
+      const generate = vi.fn<LlmProvider["generate"]>(async () => {
+        throw new Error(
+          "LLM request to https://api.example.com/v1/chat failed with status 429: quota exceeded",
+        );
+      });
+      createProvider.mockReturnValue({ generate });
+
+      const res = await route.POST(previewPost({ brief }));
+
+      expect(res.status).toBe(502);
+      // Quota exhaustion and upstream 429s arrive AS GenerationError, so this
+      // is the branch real quota failures take — it must leave a server-side
+      // trace or an operator sees an unattributable 502.
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const logged = loggedText(errorSpy);
+      expect(logged).toContain(`preview generation failed (brief length ${brief.length})`);
+      expect(logged).toContain("GenerationError");
+      for (const leak of ["api.example.com", "429", "quota exceeded", "sk-super-secret-key", brief]) {
+        expect(logged).not.toContain(leak);
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("a non-GenerationError failure is logged server-side, class name only", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "sk-super-secret-key";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const brief = "a neon dashboard";
+    // generateFromBrief folds every provider throw into a GenerationError, so
+    // this branch is unreachable through the provider. Reach it the only way
+    // possible — by making the module seam itself throw a plain Error — because
+    // this is precisely the branch that would log err.message if a future edit
+    // got it wrong, and an untested branch is exactly how that happens.
+    vi.doMock("../../lib/generate", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("../../lib/generate")>();
+      return {
+        ...actual,
+        generateFromBrief: () => {
+          throw new Error(
+            "boom at https://api.example.com/v1 with sk-super-secret-key for a neon dashboard",
+          );
+        },
+      };
+    });
+    try {
+      const { route } = await loadPreview();
+
+      const res = await route.POST(previewPost({ brief }));
+
+      expect(res.status).toBe(502);
+      expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "generation-failed" });
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const logged = loggedText(errorSpy);
+      // "Error", not "GenerationError": the two branches are distinguishable.
+      expect(logged).toContain(`preview generation failed (brief length ${brief.length}): Error`);
+      for (const leak of ["api.example.com", "sk-super-secret-key", brief]) {
+        expect(logged).not.toContain(leak);
+      }
+    } finally {
+      // Undo the seam mock so no later test in this file sees it.
+      vi.doUnmock("../../lib/generate");
+      vi.resetModules();
+      errorSpy.mockRestore();
+    }
   });
 
   it("uses only the FIRST hop of x-forwarded-for as the bucket", async () => {

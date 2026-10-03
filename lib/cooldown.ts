@@ -45,6 +45,19 @@ export class Cooldown {
     return Math.max(0, this.windowMs - (now - last));
   }
 
+  /**
+   * Forget `key` entirely, so it may be consumed again right away.
+   *
+   * For undoing a consume that was made pointless by a later check — the
+   * preview route consumes a client's cooldown and can then refuse the same
+   * request at the daily cap, and without this the caller would carry a
+   * cooldown slot for a generation that never happened. Releasing an unknown
+   * key is a no-op, and no other key is affected.
+   */
+  release(key: string): void {
+    this.lastUsedByKey.delete(key);
+  }
+
   private sweep(now: number): void {
     for (const [key, at] of this.lastUsedByKey) {
       if (now - at >= this.windowMs) {
