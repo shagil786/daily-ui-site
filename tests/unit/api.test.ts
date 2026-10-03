@@ -249,6 +249,40 @@ function previewPost(
   });
 }
 
+/**
+ * A preview request whose body is a STREAM, so it carries no `content-length`
+ * at all — the shape a chunked upload has, and the only way to reach the route
+ * without declaring how many bytes it is sending. `pad` inflates the body with
+ * a JSON member the route ignores, so the body is over the cap while its
+ * `brief` is entirely valid: a body-size refusal can then be told apart from a
+ * brief-length refusal.
+ */
+function previewStreamPost(opts: { ip?: string; padBytes: number }): Request {
+  const prefix = '{"brief":"a neon dashboard","pad":"';
+  const suffix = '"}';
+  const chunks = [prefix, "x".repeat(opts.padBytes), suffix];
+  const stream = new ReadableStream<Uint8Array>({
+    start(controller) {
+      const encoder = new TextEncoder();
+      for (const chunk of chunks) {
+        controller.enqueue(encoder.encode(chunk));
+      }
+      controller.close();
+    },
+  });
+  const headers: Record<string, string> = {};
+  if (opts.ip !== undefined) {
+    headers["x-forwarded-for"] = opts.ip;
+  }
+  return new Request("http://x", {
+    method: "POST",
+    headers,
+    body: stream,
+    // Node's fetch requires this for a streaming request body.
+    duplex: "half",
+  } as RequestInit & { duplex: "half" });
+}
+
 // ── env lifecycle ──────────────────────────────────────────────────────────
 
 beforeAll(() => {
@@ -771,6 +805,48 @@ describe("POST /api/preview", () => {
     expect(createProvider).not.toHaveBeenCalled();
   });
 
+  it("400 { error: 'bad-brief' } when the declared content-length is over the body cap", async () => {
+    const { route, createProvider } = await loadPreview();
+
+    // App Router route handlers have no default body limit (bodyParser.sizeLimit
+    // is Pages-Router-only, bodySizeLimit is Server-Actions-only), so this route
+    // must refuse an oversized body itself. The declared length is the cheap
+    // reject: nothing is read at all.
+    const declared = new Request("http://x", {
+      method: "POST",
+      headers: { "content-length": String(1024 * 1024) },
+      body: JSON.stringify({ brief: "a neon dashboard" }),
+    });
+
+    const res = await route.POST(declared);
+
+    expect(res.status).toBe(400);
+    expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "bad-brief" });
+    expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it("400 { error: 'bad-brief' } for an oversized body with NO content-length header", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    const { route, createProvider } = await loadPreview();
+    answering(createProvider, localToday());
+
+    // The body IS valid JSON and its brief IS valid, so nothing but the size
+    // can refuse it: without a byte-capped read, this 64 KB anonymous upload
+    // would be buffered in full and then generated from. The absence of the
+    // header is the point — a chunked request never declares its length, and a
+    // caller that does declare one can always lie about it.
+    const chunked = previewStreamPost({ ip: "10.0.0.7", padBytes: 64 * 1024 });
+    expect(chunked.headers.get("content-length")).toBeNull();
+
+    const res = await route.POST(chunked);
+
+    expect(res.status).toBe(400);
+    expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "bad-brief" });
+    // Refused before parsing, so no provider and no credit.
+    expect(createProvider).not.toHaveBeenCalled();
+  });
+
   it("429 { error: 'cooldown', retryAfterMinutes } for a second request within 10 minutes", async () => {
     process.env.LLM_PROVIDER = "openai";
     process.env.LLM_API_KEY = "test-key";
@@ -906,6 +982,33 @@ describe("POST /api/preview", () => {
     expect(res.status).toBe(503);
     expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "unavailable" });
     expect(createProvider).not.toHaveBeenCalled();
+  });
+
+  it("a 503 spends no daily-cap slot, so it cannot be used to drain the day's budget", async () => {
+    process.env.PREVIEW_DAILY_CAP = "1";
+    // beforeEach leaves LLM_PROVIDER unset, so every request is refused at the
+    // provider-config check and nothing is spent.
+    const { route, createProvider } = await loadPreview();
+
+    const first = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.1" }));
+    expect(first.status).toBe(503);
+
+    // A DIFFERENT ip each time, so the cooldown can never be what answers. Had
+    // the 503 consumed the day's single slot, this would be `daily-cap` — and an
+    // unauthenticated caller could then exhaust PREVIEW_DAILY_CAP without ever
+    // spending a credit, denying previews to real visitors until UTC midnight.
+    const second = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.2" }));
+    expect(second.status).toBe(503);
+    expect(await jsonOf<ErrorBody>(second)).toEqual({ error: "unavailable" });
+
+    // Observable proof, no internals exported: the slot is still there once the
+    // provider is configured, so the refusals above cost the day nothing.
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    answering(createProvider, localToday());
+    const third = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.3" }));
+
+    expect(third.status).toBe(200);
   });
 
   it("502 { error: 'generation-failed' } when both attempts fail, and no provider detail leaks", async () => {

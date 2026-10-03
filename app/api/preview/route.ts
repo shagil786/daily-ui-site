@@ -13,16 +13,24 @@ import { createProvider, type LlmProvider, type LlmProviderName } from "../../..
  *
  * Checks run in exactly this order, first failure wins, so a caller always
  * learns the FIRST thing that is wrong with it:
- *   1. body shape → `{brief: string}` with a trimmed length of 8–400
- *      characters and no prompt-fence delimiter (400 bad-brief)
+ *   1. body size then shape → at most MAX_BODY_BYTES read (400 bad-brief), then
+ *      `{brief: string}` with a trimmed length of 8–400 characters and no
+ *      prompt-fence delimiter (400 bad-brief)
  *   2. per-client cooldown → one generation per client per 10 minutes
  *      (429 cooldown, with `retryAfterMinutes`). BEST-EFFORT ONLY — see below.
  *   3. per-process daily cap → `PREVIEW_DAILY_CAP` (default 50) generations per
  *      UTC calendar day (429 daily-cap). This is the ONLY hard ceiling on
- *      spend; the cooldown above is not one.
+ *      PREVIEW spend; the cooldown above is not one, and the site's other
+ *      generation paths (§6 render-time attempt, POST /api/generate) are not
+ *      counted by it at all.
  *   4. provider config from server-held `LLM_PROVIDER`/`LLM_API_KEY`, missing
  *      or empty → 503 unavailable without constructing a provider
  *   5. generation → 200 `{doc}`, or 502 generation-failed
+ *
+ * The body is read with a hard byte cap (`readCappedBody`) BEFORE any parsing:
+ * this is the only unauthenticated endpoint that reads a body at all, and App
+ * Router route handlers apply no default body limit, so `request.text()` alone
+ * would let an anonymous caller choose how much this process buffers.
  *
  * Every error response is a FIXED body from this list. No `err.message` is ever
  * surfaced: a `GenerationError` message carries the provider's endpoint URL,
@@ -36,6 +44,13 @@ import { createProvider, type LlmProvider, type LlmProviderName } from "../../..
 const MIN_BRIEF_LENGTH = 8;
 /** ...and at most this many, so one request cannot stream an unbounded prompt. */
 const MAX_BRIEF_LENGTH = 400;
+/**
+ * Hard ceiling on the bytes read out of a request body. Deliberately generous
+ * next to `MAX_BRIEF_LENGTH`: JSON escaping means the encoded body of a
+ * maximum-length brief is larger than 400 bytes, and this must never be the
+ * reason a legitimate brief is refused. 1 KB leaves ample headroom.
+ */
+const MAX_BODY_BYTES = 1024;
 /** One generation per client per 10 minutes. */
 const PREVIEW_COOLDOWN_MS = 10 * 60 * 1000;
 /** Generations allowed per UTC day when `PREVIEW_DAILY_CAP` is unusable. */
@@ -61,6 +76,65 @@ function error(
 type BriefResolution = { ok: true; brief: string } | { ok: false };
 
 /**
+ * The request body as text, refusing anything longer than `cap` bytes.
+ * `undefined` means "too big, or unreadable" — both are answered `bad-brief`,
+ * so bounding the read adds no response shape.
+ *
+ * TWO guards, because either alone can be defeated by an anonymous caller:
+ *   - a DECLARED `content-length` over the cap is refused before a byte is read;
+ *   - the stream is then read against a hard byte ceiling, which is what stops a
+ *     chunked request (no header at all) and a request that simply LIES about
+ *     its length. `request.text()` would buffer all of it first and bound
+ *     nothing, which is the whole point: App Router route handlers have no
+ *     default body limit (`bodyParser.sizeLimit` is Pages-Router-only,
+ *     `bodySizeLimit` is Server-Actions-only), and this is the only
+ *     unauthenticated endpoint that reads a body at all — `POST /api/generate`
+ *     checks `x-generate-secret` before touching its body — so an unbounded
+ *     read here is an anonymous way to grow the process's memory.
+ *
+ * A read that throws mid-stream is a failed read, not a crash: a body the
+ * client abandons is indistinguishable from a broken one, and neither is worth
+ * a 500.
+ */
+async function readCappedBody(request: Request, cap: number = MAX_BODY_BYTES): Promise<string | undefined> {
+  const declared = request.headers.get("content-length");
+  if (declared !== null && /^\d+$/.test(declared.trim()) && Number(declared) > cap) {
+    return undefined;
+  }
+  const body = request.body;
+  if (body === null) {
+    return "";
+  }
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let received = 0;
+  let text = "";
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      received += value.byteLength;
+      if (received > cap) {
+        // Stop reading rather than draining the rest: cancel() is what keeps
+        // this bounded no matter how much the caller streams.
+        await reader.cancel();
+        return undefined;
+      }
+      // Streaming decode, so a multi-byte character split across two chunks is
+      // not corrupted into U+FFFD.
+      text += decoder.decode(value, { stream: true });
+    }
+    return text + decoder.decode();
+  } catch {
+    return undefined;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+/**
  * Validate the request body into a trimmed brief. Invalid input resolves
  * `ok: false` (400) and never reaches the provider.
  *
@@ -70,9 +144,13 @@ type BriefResolution = { ok: true; brief: string } | { ok: false };
  * pose as prompt text that follows it.
  */
 async function resolveBrief(request: Request): Promise<BriefResolution> {
+  const body = await readCappedBody(request);
+  if (body === undefined) {
+    return { ok: false };
+  }
   let parsed: unknown;
   try {
-    parsed = JSON.parse(await request.text());
+    parsed = JSON.parse(body);
   } catch {
     return { ok: false };
   }
@@ -195,7 +273,6 @@ export async function POST(request: Request): Promise<Response> {
     previewCooldown.release(ip);
     return error({ error: "daily-cap" }, 429);
   }
-  capCount += 1;
 
   // 4. Provider wiring from server-held env; the key is passed through and
   //    never logged or returned. Missing/empty config is "unavailable", not
@@ -216,6 +293,16 @@ export async function POST(request: Request): Promise<Response> {
     // the configured value, so it stays server-side too.
     return error({ error: "unavailable" }, 503);
   }
+
+  // The day's slot is spent HERE, after the config is known good — not at the
+  // check above. A 503 spends no credit, so it must not spend the day's budget
+  // either: with the increment where it was, an unset or misconfigured provider
+  // plus rotated `x-forwarded-for` drained PREVIEW_DAILY_CAP without generating
+  // anything, and every real visitor got `daily-cap` until UTC midnight. The
+  // CHECK stays above so the reporting order is unchanged — brief → cooldown →
+  // cap → config → generation — and a caller is still told `daily-cap` before it
+  // is told `unavailable`.
+  capCount += 1;
 
   // 5. Run the pipeline. `generateFromBrief` throws GenerationError only after
   //    its own single repair attempt, and `runAttempt` already folds provider
