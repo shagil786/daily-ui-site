@@ -41,8 +41,9 @@ prompt differs, and nothing is written to the database.
 If today's row is missing when someone opens `/` or `GET /api/today`, the server
 makes **one** generation attempt with server-held credentials, rate-limited to
 once per date per 10 minutes, then falls back to the latest stored day with a
-"showing most recent" badge. A fresh deploy with an empty database fills itself
-on first visit.
+"showing most recent" badge. That attempt spends a credit like any other
+generation and is not counted by `PREVIEW_DAILY_CAP`. A fresh deploy with an
+empty database fills itself on first visit.
 
 ## Quick start
 
@@ -85,7 +86,7 @@ database, the empty state shows otherwise, and generation attempts fail fast.
 | `npm run dev` | Next dev server |
 | `npm run build` / `npm start` | Production build / serve |
 | `npm run typecheck` | `tsc --noEmit`, strict |
-| `npm test` | Vitest unit suite (294 tests) |
+| `npm test` | Vitest unit suite (303 tests) |
 | `npm run test:e2e` | Playwright smoke (18 tests) after a port preflight |
 
 `npm run test:e2e` refuses to run if port 3000 is busy: Playwright would
@@ -141,15 +142,17 @@ crashing the page, so a model inventing a component never takes the site down.
 | `GET /api/archive` | `[{date, title, directive, stale}]`, newest first |
 | `GET /api/archive/[date]` | One document, `404 {error:"not-found"}`, `500 {error:"corrupt"}` |
 | `POST /api/generate` | `x-generate-secret` header required (`401`), strict `YYYY-MM-DD` body (`400`), one attempt per date per 10 min (`429`), `502 {error:"generation-failed"}` on failure, `200 {date, stale, directive}` on success |
-| `POST /api/preview` | Unauthenticated, nothing persisted. `200 {doc}`; `400 {error:"bad-brief"}` (trimmed brief outside 8–400 chars, or carrying the prompt's closing fence); `429 {error:"cooldown", retryAfterMinutes}` (one generation per client per 10 min); `429 {error:"daily-cap"}` (`PREVIEW_DAILY_CAP` reached for the UTC day); `503 {error:"unavailable"}` (provider not configured server-side); `502 {error:"generation-failed"}` |
+| `POST /api/preview` | Unauthenticated, nothing persisted. `200 {doc}`; `400 {error:"bad-brief"}` (trimmed brief outside 8–400 chars, or carrying the prompt's closing fence); `429 {error:"cooldown", retryAfterMinutes}` (one generation per client per 10 min; `retryAfterMinutes` is always an integer ≥ 1, floored at 1 even when less than a minute is left); `429 {error:"daily-cap"}` (`PREVIEW_DAILY_CAP` reached for the UTC day); `503 {error:"unavailable"}` (provider not configured server-side); `502 {error:"generation-failed"}` |
 
 `POST /api/generate` — the cron/on-demand path that writes a stored day —
 requires `x-generate-secret`, and no other route stores a day. There is one
 deliberate secretless exception: when today's row is missing or corrupt, an
 anonymous request to `/` or `GET /api/today` triggers `attemptRenderGeneration`,
 which spends credits using server-held `LLM_*` env only. It is bounded to one
-attempt per date per 10 minutes, and it is not read-only: on success it stores
-that date's row (or a stale fallback), exactly as the cron path would.
+attempt per date per 10 minutes — about 144 generations a day, which
+`PREVIEW_DAILY_CAP` does not count or limit — and it is not read-only: on
+success it stores that date's row (or a stale fallback), exactly as the cron
+path would.
 
 `POST /api/preview` is unauthenticated too, and is bounded by counters rather
 than by a credential:
@@ -164,8 +167,13 @@ than by a credential:
   value stays in first position. Anyone calling the origin directly has the same
   freedom.
 - So the cooldown is **best-effort**: it stops casual repeat-visits and nothing
-  more. **`PREVIEW_DAILY_CAP` is the only hard ceiling on spend** — run a single
-  instance if that ceiling has to hold.
+  more. **`PREVIEW_DAILY_CAP` is the only hard ceiling on preview spend** — run a
+  single instance if that ceiling has to hold.
+
+Those two counters bound `/api/preview` and nothing else. Two other paths spend
+credits outside them: the secretless render-time attempt above (one per date per
+10 minutes), and `POST /api/generate` behind `GENERATE_SECRET`. `PREVIEW_DAILY_CAP`
+is not a budget for the site, only for previews.
 
 ## Pages
 
@@ -179,10 +187,10 @@ the meta column wraps under the title:
 
 ## Security posture
 
-- LLM output and any future user input is untrusted: schema-validated, budget-checked, and never passed to `dangerouslySetInnerHTML` or `eval`
+- LLM output and the visitor's own preview brief are untrusted: the brief is length-bounded and refused if it carries the prompt's closing fence, then everything the model returns is schema-validated and budget-checked — and nothing is ever passed to `dangerouslySetInnerHTML` or `eval`
 - Depth and node budgets are enforced iteratively before parsing, so a pathological document cannot blow the stack
 - `GENERATE_SECRET` is compared in constant time over sha256 digests and is never logged
-- Rate limits are per-process and in-memory by design (single-process self-host); `POST /api/preview` is unauthenticated, so its per-IP cooldown is best-effort and `PREVIEW_DAILY_CAP` is the only hard spend ceiling — see [API](#api)
+- Rate limits are per-process and in-memory by design (single-process self-host); `POST /api/preview` is unauthenticated, so its per-IP cooldown is best-effort and `PREVIEW_DAILY_CAP` is the only hard ceiling on **preview** spend. The secretless render-time attempt spends credits outside it, bounded only by one attempt per date per 10 minutes — see [API](#api)
 
 ## Testing
 
