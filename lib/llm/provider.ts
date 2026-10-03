@@ -10,20 +10,41 @@ export interface LlmProvider {
 export type LlmProviderName = "openai" | "anthropic";
 
 /**
+ * Default ceiling on one provider call. Generous, because compatible hosts can
+ * be genuinely slow — a cold reasoning model was measured at ~260s — but not
+ * unbounded: live testing found a host that accepted a request and held the
+ * connection open with no response at all, which would otherwise pin a server
+ * thread forever. Override with `LLM_TIMEOUT_MS`.
+ */
+export const DEFAULT_TIMEOUT_MS = 600_000;
+
+/** A positive whole number of milliseconds, or undefined when unusable. */
+export function parseTimeoutMs(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw.trim().length === 0) {
+    return undefined;
+  }
+  const parsed = Number(raw.trim());
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+/**
  * Shared transport helper for both providers: POST JSON, parse the JSON
  * response. Non-2xx responses throw an Error whose `status` property carries
  * the HTTP status code so the pipeline can treat API failures as failures.
- * Never performs retries — one call, one result or one throw.
+ * Never performs retries — one call, one result or one throw. The request is
+ * bounded by `timeoutMs` (default {@link DEFAULT_TIMEOUT_MS}).
  */
 export async function postJson(
   url: string,
   headers: Record<string, string>,
   body: unknown,
+  timeoutMs: number = DEFAULT_TIMEOUT_MS,
 ): Promise<unknown> {
   const response = await fetch(url, {
     method: "POST",
     headers: { "content-type": "application/json", ...headers },
     body: JSON.stringify(body),
+    signal: AbortSignal.timeout(timeoutMs),
   });
 
   if (!response.ok) {

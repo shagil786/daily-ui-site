@@ -1,4 +1,4 @@
-import { postJson, type LlmProvider } from "./provider";
+import { parseTimeoutMs, postJson, type LlmProvider } from "./provider";
 
 const ENDPOINT = "https://api.anthropic.com/v1/messages";
 const MODEL = "claude-sonnet-5-5";
@@ -80,6 +80,7 @@ export function createAnthropicProvider(apiKey: string): LlmProvider {
           tool_choice: { type: "tool", name: "submit_ui" },
           messages,
         },
+        parseTimeoutMs(process.env.LLM_TIMEOUT_MS),
       );
       return readContent(data);
     },

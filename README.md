@@ -78,7 +78,7 @@ somewhere else without touching the code:
 LLM_PROVIDER=openai
 LLM_BASE_URL=https://integrate.api.nvidia.com/v1
 LLM_MODEL=z-ai/glm-5.3-flash
-LLM_MAX_TOKENS=4096
+LLM_MAX_TOKENS=16384
 LLM_API_KEY=...
 ```
 
@@ -86,6 +86,14 @@ The request asks for `response_format: {type: "json_object"}` and a system
 prompt that demands bare JSON, so a host that quietly ignores JSON mode still
 usually returns something parseable; when it does not, the pipeline's repair
 attempt is the safety net.
+
+**Two measured gotchas on free-tier compatible hosts.** Reasoning models spend
+tokens before they answer, so a cap sized for the document alone truncates it
+mid-string. And the prompt states the document's exact shape, because left to
+improvise a capable model will invent `theme.colors.background` and
+`"version": "1.0.0"` — every field of which then fails validation. Expect these
+hosts to be slow: a cold reasoning model measured ~260s per call, so a failed
+generation with one repair attempt takes ~9 minutes.
 
 ## Configuration
 
@@ -95,7 +103,8 @@ attempt is the safety net.
 | `LLM_API_KEY` | Provider key. Server-side only — never in the client bundle |
 | `LLM_BASE_URL` | Any OpenAI-compatible host (NVIDIA NIM, Together, a local gateway). Unset means OpenAI; include the version segment, `/chat/completions` is appended |
 | `LLM_MODEL` | Model id. Unset means `gpt-5.4` |
-| `LLM_MAX_TOKENS` | Output cap. **Unset means the field is not sent** (OpenAI's newer reasoning models reject it) — raise it on compatible hosts that truncate by default, or a full-length UI document comes back cut off and fails extraction |
+| `LLM_MAX_TOKENS` | Output cap. **Unset means the field is not sent** (OpenAI's newer reasoning models reject it). Reasoning models need a lot: on `z-ai/glm-5.3-flash`, thinking consumed ~2600–3400 tokens before any document was written, and `4096` truncated mid-string |
+| `LLM_TIMEOUT_MS` | Ceiling on one provider call (default `600000`). Without it a host that accepts a request and never answers holds a server thread indefinitely |
 | `GENERATE_SECRET` | Shared secret for `POST /api/generate`; unset means the route always answers 401 |
 | `DATABASE_PATH` | SQLite file path (default `./data/days.db`) |
 | `PREVIEW_DAILY_CAP` | Previews allowed per UTC day, counted per process (default `50`; only plain positive integers are honoured) |

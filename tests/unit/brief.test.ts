@@ -120,6 +120,19 @@ describe("generateFromBrief", () => {
     expect(prompt).toContain("Return JSON only.");
   });
 
+  it("pins the exact document shape, so the model cannot invent its own theme schema", async () => {
+    const generate = vi.fn(async () => JSON.stringify(doc("2026-10-03")));
+    await generateFromBrief({ provider: { generate } }, "brief", "2026-10-03");
+    const prompt = firstPrompt(generate);
+    // A reasoning model asked for "a UI document" will otherwise invent
+    // plausible-looking design tokens (observed: theme.colors.background,
+    // version "1.0.0") that fail validation on every field.
+    expect(prompt).toContain('"version":1');
+    expect(prompt).toContain('"bg":"#hex"');
+    expect(prompt).toContain('"font":"serif|sans|mono|display"');
+    expect(prompt).toContain("version MUST be the number 1");
+  });
+
   it("omits the directive lines the daily prompt uses", async () => {
     const { provider, generate } = validProvider();
     await generateFromBrief({ provider }, "brief", DATE);

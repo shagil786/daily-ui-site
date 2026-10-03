@@ -1,4 +1,4 @@
-import { postJson, type LlmProvider } from "./provider";
+import { parseTimeoutMs, postJson, type LlmProvider } from "./provider";
 
 /** Defaults are OpenAI's; any OpenAI-compatible host overrides them via env. */
 const DEFAULT_BASE_URL = "https://api.openai.com/v1";
@@ -103,7 +103,12 @@ export function createOpenAiProvider(
         body.max_tokens = maxTokens;
       }
 
-      const data = await postJson(endpoint, { authorization: `Bearer ${apiKey}` }, body);
+      const data = await postJson(
+        endpoint,
+        { authorization: `Bearer ${apiKey}` },
+        body,
+        parseTimeoutMs(process.env.LLM_TIMEOUT_MS),
+      );
       return readContent(data);
     },
   };

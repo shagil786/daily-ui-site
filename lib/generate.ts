@@ -53,6 +53,22 @@ function promptPreamble(date: string): string {
 }
 
 /**
+ * The document shape, stated exactly. Without it a capable model invents a
+ * plausible-looking schema of its own — observed in live testing: `"version":
+ * "1.0.0"` and `theme.colors.background` / `theme.fonts.heading` instead of
+ * `theme.bg` / `theme.fg` / `theme.accent` / `theme.font` / `theme.dark`, which
+ * then fails validation on every theme field. Values here are placeholders; the
+ * model supplies its own.
+ */
+const DOCUMENT_SHAPE =
+  'The document has EXACTLY this shape — copy these field names and types, invent different values:\n' +
+  '{"version":1,"date":"YYYY-MM-DD","title":"string",' +
+  '"theme":{"bg":"#hex","fg":"#hex","accent":"#hex","font":"serif|sans|mono|display","dark":true},' +
+  '"root":{"id":"string","componentType":"<one allowed type>","props":{},"children":[]}}\n' +
+  "version MUST be the number 1. theme MUST have exactly the five keys bg, fg, accent, font, dark. " +
+  "Every node needs id, componentType, props, children.";
+
+/**
  * The full generation prompt: system instructions + component inventory +
  * limits + directive brief + date, ending with "Return JSON only".
  */
@@ -62,6 +78,7 @@ function buildPrompt(date: string, directive: Directive): string {
     `Directive id: ${directive.id}`,
     `Directive brief: ${directive.brief}`,
     `Allowed components and their props: ${JSON.stringify(inventoryForPrompt())}`,
+    DOCUMENT_SHAPE,
     `Limits: tree depth at most ${LIMITS.maxDepth} (root counts as depth 1); at most ` +
       `${LIMITS.maxNodes} nodes in total.`,
     "Return JSON only.",
@@ -81,6 +98,7 @@ function buildBriefPrompt(brief: string, date: string): string {
     brief,
     "--- END VISITOR BRIEF ---",
     `Allowed components and their props: ${JSON.stringify(inventoryForPrompt())}`,
+    DOCUMENT_SHAPE,
     `Limits: tree depth at most ${LIMITS.maxDepth} (root counts as depth 1); at most ` +
       `${LIMITS.maxNodes} nodes in total.`,
     "Keep all generated content benign.",

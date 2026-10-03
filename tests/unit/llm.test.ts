@@ -235,6 +235,43 @@ describe("openai provider", () => {
     expect(body.max_tokens).toBe(4096);
   });
 
+  it("passes an abort signal so a stalled upstream cannot hang forever", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: "{}" } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await createOpenAiProvider("sk-test").generate("build a hero");
+
+    // Live testing found a compatible host that accepted a request and then
+    // held the connection open for minutes with no response at all.
+    const signal = (fetchMock.mock.calls[0][1] as RequestInit | undefined)?.signal;
+    expect(signal).toBeDefined();
+  });
+
+  it("applies LLM_TIMEOUT_MS when it is set to a positive number", async () => {
+    const previous = process.env.LLM_TIMEOUT_MS;
+    process.env.LLM_TIMEOUT_MS = "12345";
+    const fetchMock = vi.fn(
+      async (_url: string, _init?: RequestInit): Promise<Response> =>
+        mockResponse({ choices: [{ message: { content: "{}" } }] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      vi.spyOn(AbortSignal, "timeout").mockReturnValue("signal" as unknown as AbortSignal);
+      await createOpenAiProvider("sk-test").generate("build a hero");
+      expect(AbortSignal.timeout).toHaveBeenCalledWith(12345);
+    } finally {
+      vi.restoreAllMocks();
+      if (previous === undefined) {
+        delete process.env.LLM_TIMEOUT_MS;
+      } else {
+        process.env.LLM_TIMEOUT_MS = previous;
+      }
+    }
+  });
+
   it("appends opts.repair as an extra message", async () => {
     const fetchMock = vi.fn(
       async (_url: string, _init?: RequestInit): Promise<Response> =>
