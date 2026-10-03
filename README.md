@@ -143,9 +143,16 @@ crashing the page, so a model inventing a component never takes the site down.
 | `POST /api/generate` | `x-generate-secret` header required (`401`), strict `YYYY-MM-DD` body (`400`), one attempt per date per 10 min (`429`), `502 {error:"generation-failed"}` on failure, `200 {date, stale, directive}` on success |
 | `POST /api/preview` | Unauthenticated, nothing persisted. `200 {doc}`; `400 {error:"bad-brief"}` (trimmed brief outside 8–400 chars, or carrying the prompt's closing fence); `429 {error:"cooldown", retryAfterMinutes}` (one generation per client per 10 min); `429 {error:"daily-cap"}` (`PREVIEW_DAILY_CAP` reached for the UTC day); `503 {error:"unavailable"}` (provider not configured server-side); `502 {error:"generation-failed"}` |
 
-Generation of a *stored* day is never reachable without the secret, so a
-stranger cannot spend credits on the archive. `POST /api/preview` is the one
-open route, and it is bounded by counters rather than by a credential:
+`POST /api/generate` — the cron/on-demand path that writes a stored day —
+requires `x-generate-secret`, and no other route stores a day. There is one
+deliberate secretless exception: when today's row is missing or corrupt, an
+anonymous request to `/` or `GET /api/today` triggers `attemptRenderGeneration`,
+which spends credits using server-held `LLM_*` env only. It is bounded to one
+attempt per date per 10 minutes, and it is not read-only: on success it stores
+that date's row (or a stale fallback), exactly as the cron path would.
+
+`POST /api/preview` is unauthenticated too, and is bounded by counters rather
+than by a credential:
 
 - Both counters are **in-memory and per-process**. A restart resets them, and N
   instances admit N × `PREVIEW_DAILY_CAP` previews per UTC day.

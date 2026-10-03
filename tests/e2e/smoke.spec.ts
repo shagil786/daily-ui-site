@@ -352,8 +352,10 @@ test.describe("seeded database", () => {
     await expect(previewTheme).toHaveAttribute("data-font", "serif");
     await expect(previewTheme).toHaveAttribute("data-dark", "false");
     // A preview has no row, so ThemeSurface omits `data-date` rather than
-    // emptying it: nothing inside the region may look like a stored day.
-    await expect(previewTheme).not.toHaveAttribute("data-date", /.+/);
+    // emptying it. The one-argument form asserts the attribute is ABSENT (an
+    // empty `data-date=""` would fail it, which a value-matching form could
+    // not distinguish); the `[data-date]` count below covers the same ground.
+    await expect(previewTheme).not.toHaveAttribute("data-date");
 
     // The generated title, as the region's own heading (the fixture's Hero also
     // renders "Coastal Dispatch", inside the region, as an `h1` — hence the
