@@ -44,7 +44,12 @@ const GENERIC_ERROR = "Couldn't generate that right now";
  */
 const MESSAGES: Record<string, string> = {
   "daily-cap": "That's today's preview budget — come back tomorrow",
-  "bad-brief": `Describe a UI in at least ${MIN_BRIEF_LENGTH} characters`,
+  // Two reasons reach this code: a brief under MIN_BRIEF_LENGTH, and one
+  // carrying the prompt's closing fence. Both are refused as `bad-brief`, so
+  // the copy names both — "at least 8 characters" alone tells a visitor
+  // rejected for the fence that they already satisfied it, and the site reads
+  // as broken rather than as having rejected their input.
+  "bad-brief": `Describe a UI in at least ${MIN_BRIEF_LENGTH} characters, without prompt instructions`,
   unavailable: "Previews aren't configured right now",
   "generation-failed": "The model couldn't produce a usable design",
 };

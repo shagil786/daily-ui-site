@@ -86,7 +86,7 @@ database, the empty state shows otherwise, and generation attempts fail fast.
 | `npm run dev` | Next dev server |
 | `npm run build` / `npm start` | Production build / serve |
 | `npm run typecheck` | `tsc --noEmit`, strict |
-| `npm test` | Vitest unit suite (303 tests) |
+| `npm test` | Vitest unit suite (304 tests) |
 | `npm run test:e2e` | Playwright smoke (18 tests) after a port preflight |
 
 `npm run test:e2e` refuses to run if port 3000 is busy: Playwright would

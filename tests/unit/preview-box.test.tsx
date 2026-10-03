@@ -238,7 +238,24 @@ describe("PreviewBox", () => {
     expect(document.activeElement).toBe(screen.getByTestId("preview-input"));
   });
 
-  it("falls back to the generic message for an unrecognised error code", async () => {
+  it("the bad-brief copy covers BOTH reasons the route rejects a brief", async () => {
+  fetchMock.mockResolvedValue(jsonResponse({ error: "bad-brief" }, 400));
+  render(<PreviewBox />);
+  fillBrief();
+  await generate();
+
+  const alert = await screen.findByTestId("preview-error");
+  const copy = alert.textContent ?? "";
+  // The route refuses a brief that is under 8 characters AND one that carries
+  // the prompt's closing fence, under the same code. A message naming only the
+  // length tells a visitor rejected for the fence that they wrote "at least 8
+  // characters" already — a constraint they satisfy — so the site reads as
+  // broken rather than as having rejected their input.
+  expect(copy).toContain("at least 8 characters");
+  expect(copy).toContain("without prompt instructions");
+});
+
+it("falls back to the generic message for an unrecognised error code", async () => {
     fetchMock.mockResolvedValue(
       jsonResponse({ error: "teapot", detail: "npm ERR! 418" }, 418),
     );

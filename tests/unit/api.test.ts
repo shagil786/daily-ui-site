@@ -900,6 +900,57 @@ describe("POST /api/preview", () => {
     expect(await jsonOf<ErrorBody>(second)).toEqual({ error: "daily-cap" });
   });
 
+  it("a daily-cap rejection is logged with the client IP and nothing about the brief", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "sk-super-secret-key";
+    process.env.PREVIEW_DAILY_CAP = "1";
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const brief = "a neon dashboard with no secrets in it";
+    try {
+      const { route, createProvider } = await loadPreview();
+      answering(createProvider, localToday());
+      await route.POST(previewPost({ brief }, { ip: "10.0.0.1" }));
+
+      const capped = await route.POST(previewPost({ brief }, { ip: "198.51.100.42" }));
+
+      expect(capped.status).toBe(429);
+      // A cap rejection is the signal that someone is draining the day's spend,
+      // and without a log line an operator sees refusals with no trace.
+      expect(errorSpy).toHaveBeenCalledTimes(1);
+      const logged = loggedText(errorSpy);
+      expect(logged).toContain("preview daily cap reached");
+      expect(logged).toContain("198.51.100.42");
+      for (const leak of ["sk-super-secret-key", brief, "neon dashboard"]) {
+        expect(logged).not.toContain(leak);
+      }
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("every preview response is Cache-Control: no-store, success and error alike", async () => {
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "test-key";
+    const { route, createProvider } = await loadPreview();
+    answering(createProvider, localToday());
+
+    const ok = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.1" }));
+    const bad = await route.POST(previewPost({ brief: "short" }, { ip: "10.0.0.2" }));
+    const refused = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.1" }));
+
+    // "Returned once and forgotten" is a promise the spec makes to the visitor.
+    // Next's dynamic-for-POST default holds it today, but that is a framework
+    // behaviour, not this code: an intermediary must not be able to serve one
+    // visitor's ephemeral preview document to the next.
+    expect(ok.status).toBe(200);
+    expect(ok.headers.get("cache-control")).toBe("no-store");
+    for (const errRes of [bad, refused]) {
+      expect(errRes.headers.get("cache-control")).toBe("no-store");
+    }
+    expect(bad.status).toBe(400);
+    expect(refused.status).toBe(429);
+  });
+
   it("a cap-rejected request does not consume the client's cooldown", async () => {
     process.env.LLM_PROVIDER = "openai";
     process.env.LLM_API_KEY = "test-key";
@@ -1009,6 +1060,38 @@ describe("POST /api/preview", () => {
     const third = await route.POST(previewPost({ brief: "a neon dashboard" }, { ip: "10.0.0.3" }));
 
     expect(third.status).toBe(200);
+  });
+
+  it("503 { error: 'unavailable' } when LLM_PROVIDER is set to an unknown name, and it never leaks", async () => {
+    // createProvider throws for a name it does not implement, and its message
+    // NAMES the configured value — the leak vector for this branch. The route
+    // must swallow it whole.
+    process.env.LLM_PROVIDER = "bedrock";
+    process.env.LLM_API_KEY = "sk-super-secret-key";
+    const { route } = await loadPreview();
+
+    const res = await route.POST(previewPost({ brief: "a neon dashboard" }));
+
+    expect(res.status).toBe(503);
+    const raw = await res.text();
+    expect(JSON.parse(raw)).toEqual({ error: "unavailable" });
+    for (const leak of ["bedrock", "sk-super-secret-key", "a neon dashboard"]) {
+      expect(raw).not.toContain(leak);
+    }
+  });
+
+  it("503 { error: 'unavailable' } when LLM_API_KEY is an empty string", async () => {
+    // Set but empty is not configured: an empty key can only produce an upstream
+    // auth failure, and the route must not spend a cap slot finding that out.
+    process.env.LLM_PROVIDER = "openai";
+    process.env.LLM_API_KEY = "";
+    const { route, createProvider } = await loadPreview();
+
+    const res = await route.POST(previewPost({ brief: "a neon dashboard" }));
+
+    expect(res.status).toBe(503);
+    expect(await jsonOf<ErrorBody>(res)).toEqual({ error: "unavailable" });
+    expect(createProvider).not.toHaveBeenCalled();
   });
 
   it("502 { error: 'generation-failed' } when both attempts fail, and no provider detail leaks", async () => {

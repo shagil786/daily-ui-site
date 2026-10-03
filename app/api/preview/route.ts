@@ -66,11 +66,23 @@ let capDay = "";
 /** Generations admitted so far on `capDay`. */
 let capCount = 0;
 
+/**
+ * Every response here is explicitly `Cache-Control: no-store`.
+ *
+ * A preview is returned once and forgotten, and the spec promises the visitor
+ * that: not archived, not retrievable, not served to anyone else. Next's
+ * dynamic-for-POST default happens to hold that today, but it is a framework
+ * behaviour rather than a property of this code, and an intermediary cache or
+ * CDN is free to disagree. Stating it here means the promise survives a
+ * framework change.
+ */
+const NO_STORE_HEADERS = { "cache-control": "no-store" };
+
 function error(
   body: { error: string; retryAfterMinutes?: number },
   status: number,
 ): Response {
-  return Response.json(body, { status });
+  return Response.json(body, { status, headers: NO_STORE_HEADERS });
 }
 
 type BriefResolution = { ok: true; brief: string } | { ok: false };
@@ -271,6 +283,17 @@ export async function POST(request: Request): Promise<Response> {
     // request from an UNAUTHENTATED caller rotating x-forwarded-for, growing
     // memory in proportion to rejected traffic rather than to real spend.
     previewCooldown.release(ip);
+    // A cap rejection is the signal that someone is draining the day's spend,
+    // and nothing else in the route reports it: a preview costs no credit here,
+    // so there is no 502 to trace and no failure to log. One aggregated line
+    // naming the client and the day's usage, so an operator can see WHO is
+    // consuming the budget rather than only that it went. The brief is
+    // untrusted visitor text and is never logged; the IP is a caller-chosen
+    // header value, so it is for correlation and not an identity.
+    console.error(
+      `preview daily cap reached (${capCount}/${dailyCap()} admitted, client ${ip}) ` +
+        "— refusing without spending a slot",
+    );
     return error({ error: "daily-cap" }, 429);
   }
 
@@ -310,7 +333,7 @@ export async function POST(request: Request): Promise<Response> {
   //    never returned to the caller.
   try {
     const doc = await generateFromBrief({ provider }, brief, todayLocal());
-    return Response.json({ doc });
+    return Response.json({ doc }, { headers: NO_STORE_HEADERS });
   } catch (err) {
     // Log the class name and the brief's LENGTH, and nothing else. Both
     // branches log: `generateFromBrief` already folds every provider throw
