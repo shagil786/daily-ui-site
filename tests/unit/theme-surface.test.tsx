@@ -38,11 +38,23 @@ describe("ThemeSurface", () => {
     expect(root.hasAttribute("data-date")).toBe(false);
   });
 
-  it("keeps data-date, data-font, and the theme variables when a date is given", () => {
+  /**
+   * The full set of theme outputs on the wrapper, in one place on purpose:
+   * `--fg`, `--accent`, and the `font-*` class had NO coverage anywhere in the
+   * repo, so dropping one of them left every other test green while silently
+   * breaking the theme. The e2e suite covers `data-date`/`data-font`/
+   * `data-dark`, and this test covers everything it does not.
+   */
+  it("emits the font class, all three custom properties, and the data hooks", () => {
     render(<ThemeSurface doc={fixtureDoc()} date="2026-10-03" />);
     const root = screen.getByTestId("theme-root");
+
+    expect(root.className).toBe(`theme-root font-${fixtureDoc().theme.font}`);
+    expect(root.style.getPropertyValue("--bg")).toBe(fixtureDoc().theme.bg);
+    expect(root.style.getPropertyValue("--fg")).toBe(fixtureDoc().theme.fg);
+    expect(root.style.getPropertyValue("--accent")).toBe(fixtureDoc().theme.accent);
     expect(root.getAttribute("data-date")).toBe("2026-10-03");
     expect(root.getAttribute("data-font")).toBe(fixtureDoc().theme.font);
-    expect(root.style.getPropertyValue("--bg")).toBe(fixtureDoc().theme.bg);
+    expect(root.getAttribute("data-dark")).toBe(String(fixtureDoc().theme.dark));
   });
 });

@@ -45,7 +45,12 @@ type ThemeSurfaceProps = {
 /**
  * The `.theme-root` div: `font-${theme.font}` class, `--bg/--fg/--accent`
  * custom properties, and the `theme-root` / `data-font` / `data-dark` hooks.
- * A Server Component — no state or effects, so no `"use client"` needed.
+ *
+ * Intentionally directive-free: no `"use client"` and no server-only imports
+ * (only `react` types and `lib/schema`'s `UiDocument` type), so the same
+ * component is usable from a Server Component (`DocView`) or a Client
+ * Component (the preview) without either side changing this file. It holds no
+ * state and runs no effects, so nothing here depends on a server render.
  */
 export function ThemeSurface({ doc, date, children }: ThemeSurfaceProps): JSX.Element {
   return (
