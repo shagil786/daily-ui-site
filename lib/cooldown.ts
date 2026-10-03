@@ -30,6 +30,21 @@ export class Cooldown {
     return this.lastUsedByKey.size;
   }
 
+  /**
+   * Milliseconds left before `key` may be consumed again; 0 when it may.
+   *
+   * Reads the map WITHOUT sweeping: this is a read, and a read that evicted
+   * entries would make "how much is left?" a mutating operation with side
+   * effects on other keys' state.
+   */
+  remainingMs(key: string, now: number = Date.now()): number {
+    const last = this.lastUsedByKey.get(key);
+    if (last === undefined) {
+      return 0;
+    }
+    return Math.max(0, this.windowMs - (now - last));
+  }
+
   private sweep(now: number): void {
     for (const [key, at] of this.lastUsedByKey) {
       if (now - at >= this.windowMs) {
