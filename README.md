@@ -5,6 +5,12 @@ survive a Zod schema, a depth/node budget, and a repair attempt before it is
 allowed anywhere near a render. Every accepted design is stored, so the archive
 is a growing gallery of machine-made UIs.
 
+Visitors can also describe a UI of their own and see it rendered — the preview
+box on `/` asks for a short brief, calls the same generation pipeline, and shows
+the result through the same renderer in its own region below today's document.
+A preview is never stored, never archived, and leaves the daily document
+untouched.
+
 ![Today's generated UI](docs/screenshots/today.png)
 
 <sub>Rendered from the e2e fixture (`tests/fixtures/sample-doc.json`), so this
@@ -24,8 +30,13 @@ directive (deterministic per date)
       └─ provider failed → same fallback; nothing older → GenerationError
 ```
 
-Both entry points — the CLI and the HTTP route — call the same
-`generateDay()` in `lib/generate.ts`. There is no second code path.
+Stored days have two entry points — the CLI and the HTTP route — and both call
+the same `generateDay()` in `lib/generate.ts`. There is no second code path.
+
+Visitor previews are the third, and they are not a path around the gate:
+`POST /api/preview` calls `generateFromBrief()` in the same file, so a brief
+goes through the same Zod validation, budget and single repair attempt. Only the
+prompt differs, and nothing is written to the database.
 
 If today's row is missing when someone opens `/` or `GET /api/today`, the server
 makes **one** generation attempt with server-held credentials, rate-limited to
@@ -65,6 +76,7 @@ database, the empty state shows otherwise, and generation attempts fail fast.
 | `LLM_API_KEY` | Provider key. Server-side only — never in the client bundle |
 | `GENERATE_SECRET` | Shared secret for `POST /api/generate`; unset means the route always answers 401 |
 | `DATABASE_PATH` | SQLite file path (default `./data/days.db`) |
+| `PREVIEW_DAILY_CAP` | Previews allowed per UTC day, counted per process (default `50`; only plain positive integers are honoured) |
 
 ## Scripts
 
@@ -73,8 +85,8 @@ database, the empty state shows otherwise, and generation attempts fail fast.
 | `npm run dev` | Next dev server |
 | `npm run build` / `npm start` | Production build / serve |
 | `npm run typecheck` | `tsc --noEmit`, strict |
-| `npm test` | Vitest unit suite (242 tests) |
-| `npm run test:e2e` | Playwright smoke (15 tests) after a port preflight |
+| `npm test` | Vitest unit suite (294 tests) |
+| `npm run test:e2e` | Playwright smoke (18 tests) after a port preflight |
 
 `npm run test:e2e` refuses to run if port 3000 is busy: Playwright would
 otherwise attach to whatever is already listening there, without this suite's
@@ -98,9 +110,11 @@ lib/
   llm/            provider interface, OpenAI, Anthropic, JSON extraction
   components/     layout / content / interactive components
 app/
-  page.tsx        today (or latest, or empty state)
+  page.tsx        today (or latest, or empty state) + the preview box
+  preview-box.tsx "describe your own UI": brief → POST /api/preview → own region
+  theme-surface.tsx  themed wrapper shared by DocView and the preview
   archive/        list + /archive/[date]
-  api/            today, archive, archive/[date], generate
+  api/            today, archive, archive/[date], generate, preview
 scripts/
   generate.ts     CLI (backfill + single day)
   check-port-free.mjs
@@ -127,9 +141,24 @@ crashing the page, so a model inventing a component never takes the site down.
 | `GET /api/archive` | `[{date, title, directive, stale}]`, newest first |
 | `GET /api/archive/[date]` | One document, `404 {error:"not-found"}`, `500 {error:"corrupt"}` |
 | `POST /api/generate` | `x-generate-secret` header required (`401`), strict `YYYY-MM-DD` body (`400`), one attempt per date per 10 min (`429`), `502 {error:"generation-failed"}` on failure, `200 {date, stale, directive}` on success |
+| `POST /api/preview` | Unauthenticated, nothing persisted. `200 {doc}`; `400 {error:"bad-brief"}` (trimmed brief outside 8–400 chars, or carrying the prompt's closing fence); `429 {error:"cooldown", retryAfterMinutes}` (one generation per client per 10 min); `429 {error:"daily-cap"}` (`PREVIEW_DAILY_CAP` reached for the UTC day); `503 {error:"unavailable"}` (provider not configured server-side); `502 {error:"generation-failed"}` |
 
-Generation is never reachable without the secret, so a stranger cannot spend API
-credits through it.
+Generation of a *stored* day is never reachable without the secret, so a
+stranger cannot spend credits on the archive. `POST /api/preview` is the one
+open route, and it is bounded by counters rather than by a credential:
+
+- Both counters are **in-memory and per-process**. A restart resets them, and N
+  instances admit N × `PREVIEW_DAILY_CAP` previews per UTC day.
+- The per-client cooldown buckets on the **first hop of `x-forwarded-for`**
+  (else `x-real-ip`, else one shared `"local"` key), and that hop is chosen by
+  the caller. Rotating the header yields a fresh bucket every time, and a
+  correctly configured reverse proxy does not rescue it — such proxies *append*
+  the address they observed to what the client already sent, so the attacker's
+  value stays in first position. Anyone calling the origin directly has the same
+  freedom.
+- So the cooldown is **best-effort**: it stops casual repeat-visits and nothing
+  more. **`PREVIEW_DAILY_CAP` is the only hard ceiling on spend** — run a single
+  instance if that ceiling has to hold.
 
 ## Pages
 
@@ -146,12 +175,12 @@ the meta column wraps under the title:
 - LLM output and any future user input is untrusted: schema-validated, budget-checked, and never passed to `dangerouslySetInnerHTML` or `eval`
 - Depth and node budgets are enforced iteratively before parsing, so a pathological document cannot blow the stack
 - `GENERATE_SECRET` is compared in constant time over sha256 digests and is never logged
-- Rate limits are per-process and in-memory by design (single-process self-host)
+- Rate limits are per-process and in-memory by design (single-process self-host); `POST /api/preview` is unauthenticated, so its per-IP cooldown is best-effort and `PREVIEW_DAILY_CAP` is the only hard spend ceiling — see [API](#api)
 
 ## Testing
 
 - **Unit (Vitest):** schema and budget enforcement, hostile-input paths, registry and renderer, every component, JSON extraction, provider retry, the generation pipeline including stale fallback, API routes, rate limits, secrets
-- **E2E (Playwright):** empty-database API behaviour, auth and validation without touching a provider, seeded pages, archive navigation, unknown-type degradation, 404 paths, narrow-viewport geometry
+- **E2E (Playwright):** empty-database API behaviour, auth and validation without touching a provider, seeded pages, archive navigation, unknown-type degradation, 404 paths, narrow-viewport geometry, and the visitor preview flow (rendered document, inline error state, structurally wrong document) with the provider route stubbed so no key is needed
 
 ## Deployment
 
@@ -166,15 +195,13 @@ mounted path and schedule `POST /api/generate` (or the CLI) daily.
   constant in `lib/llm/` if that happens.
 - No live provider run has been exercised end to end yet; API shapes were built
   against current provider docs.
-- Rate-limit maps are per-process, so a multi-instance deploy multiplies the
-  effective limit.
+- Rate-limit maps and the preview daily cap are per-process, so a
+  multi-instance deploy multiplies the effective limit.
 
 Design and plan documents live in [`docs/superpowers/`](docs/superpowers/) — the
 approved spec, the 13-task build plan, and the review ledger.
 
 ## Not built (v1)
 
-Accounts, archive thumbnails, and user-described generation. The last one is
-designed for: the provider interface already carries the seam, and the next
-iteration adds a brief-driven, ephemeral preview that is never written to the
-archive.
+Accounts, archive thumbnails, and any way to keep or revisit a preview — a
+preview is returned once and forgotten, which is the point of it.
