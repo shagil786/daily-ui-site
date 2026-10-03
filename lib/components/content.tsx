@@ -144,9 +144,9 @@ export function Card({ title, body }: CardProps) {
         border: "1px solid rgba(127, 127, 127, 0.35)",
       }}
     >
-      {/* Cards nest at any depth, so the title is a level-2 heading rather
-          than skipping levels from an unknown parent. */}
-      <h2
+      {/* Level 3: a Card usually nests inside a Section (h2), so h3 keeps the
+          outline in order. */}
+      <h3
         style={{
           margin: 0,
           fontSize: "1.125rem",
@@ -155,7 +155,7 @@ export function Card({ title, body }: CardProps) {
         }}
       >
         {title}
-      </h2>
+      </h3>
       <p style={{ margin: 0, fontSize: "15px", lineHeight: 1.6, color: "var(--fg, #111111)" }}>
         {body}
       </p>

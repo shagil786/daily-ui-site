@@ -14,7 +14,12 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
  * Local time, not UTC: a visitor in UTC-5 asking for "today" at 23:30 local
  * gets 2026-10-01, not 2026-10-02. `now` is injectable for tests.
  */
-export function todayLocal(now: Date = new Date()): string {
+export function todayLocal(now: Date = new Date(), offsetDays = 0): string {
+  if (offsetDays !== 0) {
+    const shifted = new Date(now);
+    shifted.setDate(shifted.getDate() - offsetDays);
+    return todayLocal(shifted);
+  }
   const month = String(now.getMonth() + 1).padStart(2, "0");
   const day = String(now.getDate()).padStart(2, "0");
   return `${now.getFullYear()}-${month}-${day}`;

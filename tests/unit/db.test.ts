@@ -197,6 +197,15 @@ describe("listDays", () => {
     expect(listDays(db).map((r) => r.date)).toEqual(["2026-10-02"]);
   });
 
+  it("treats parseable-but-non-document json as corrupt, like the day route", () => {
+    const db = getDb(":memory:");
+    upsertDay(db, day("2026-10-04", { json: "null" }));
+    upsertDay(db, day("2026-10-03", { json: "[]" }));
+    upsertDay(db, day("2026-10-02", { json: JSON.stringify({ title: "Real" }) }));
+
+    expect(listDays(db).map((r) => r.date)).toEqual(["2026-10-02"]);
+  });
+
   it("does not throw when every row is corrupt", () => {
     const db = getDb(":memory:");
     upsertDay(db, day("2026-10-02", { json: "}{" }));

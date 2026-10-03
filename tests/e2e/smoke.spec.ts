@@ -203,7 +203,9 @@ test.describe("seeded database", () => {
       expect(rowBox).not.toBeNull();
       expect(linkBox).not.toBeNull();
       expect(metaBox).not.toBeNull();
-      if (rowBox === null || linkBox === null || metaBox === null) continue;
+      if (rowBox === null || linkBox === null || metaBox === null) {
+        throw new Error(`archive row ${i} is not laid out`);
+      }
 
       // Nothing may spill past the viewport (the date chip refuses to shrink,
       // so a narrow screen used to push the row past the right edge).

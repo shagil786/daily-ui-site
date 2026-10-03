@@ -13,7 +13,8 @@ import { secretMatches } from "../../../lib/secrets";
  * must be a strict YYYY-MM-DD (400 bad-date) so raw user input never reaches
  * `generateDay`; one accepted attempt per date per 10 minutes, in-memory
  * (429 rate-limited); provider config failure or `GenerationError` → 502
- * generation-failed; success → 200 `{date, stale, directive}`.
+ * generation-failed; any other unexpected failure → 500 internal-error;
+ * success → 200 `{date, stale, directive}`.
  */
 
 /** One accepted on-demand attempt per date per 10 minutes (in-memory, per-process). */
@@ -97,7 +98,10 @@ export async function POST(request: Request): Promise<Response> {
       return error({ error: "generation-failed" }, 502);
     }
     // Any other failure (e.g. a database error) stays a structured JSON
-    // response like every other error this route returns.
+    // response like every other error this route returns — but the cause is
+    // logged server-side, otherwise an operator sees an unattributable 500.
+    // Only the error's own name/message: never env, never the API key.
+    console.error("POST /api/generate failed unexpectedly:", err);
     return error({ error: "internal-error" }, 500);
   }
 }

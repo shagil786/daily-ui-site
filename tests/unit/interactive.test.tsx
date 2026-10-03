@@ -106,6 +106,11 @@ describe("Counter", () => {
 });
 
 describe("Todo", () => {
+  it("keeps list semantics on the item list", () => {
+    const { container } = render(<Todo title="Shopping" />);
+    expect(container.querySelector("ul")?.getAttribute("role")).toBe("list");
+  });
+
   it("typing + Enter adds an item to the list", () => {
     render(<Todo title="Shopping" />);
     expect(screen.queryByText("buy milk")).toBeNull();

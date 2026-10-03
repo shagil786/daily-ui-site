@@ -165,12 +165,13 @@ function titleFromJson(json: string): string | undefined {
   } catch {
     return undefined;
   }
-  if (
-    typeof parsed === "object" &&
-    parsed !== null &&
-    "title" in parsed &&
-    typeof parsed.title === "string"
-  ) {
+  // A non-document (null, array, string, number) is corrupt, matching
+  // GET /api/archive/[date]: both endpoints must answer the same way for the
+  // same stored bytes.
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return undefined;
+  }
+  if ("title" in parsed && typeof parsed.title === "string") {
     return parsed.title;
   }
   return "";

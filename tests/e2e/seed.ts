@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import path from "node:path";
 import { getDb, upsertDay } from "../../lib/db";
+import { todayLocal } from "../../lib/date";
 import type { UiDocument } from "../../lib/schema";
 
 /**
@@ -23,13 +24,9 @@ export const GENERATE_SECRET = "e2e-secret";
 /** The reused fixture document (valid, 8 component types). */
 const FIXTURE_PATH = path.resolve(__dirname, "..", "fixtures", "sample-doc.json");
 
-/** Today's local calendar date as YYYY-MM-DD (same local-time rule as the app). */
+/** Same local-calendar rule the app uses, one implementation. */
 function localDate(offsetDays = 0): string {
-  const date = new Date();
-  date.setDate(date.getDate() - offsetDays);
-  const month = String(date.getMonth() + 1).padStart(2, "0");
-  const day = String(date.getDate()).padStart(2, "0");
-  return `${date.getFullYear()}-${month}-${day}`;
+  return todayLocal(new Date(), offsetDays);
 }
 
 /*

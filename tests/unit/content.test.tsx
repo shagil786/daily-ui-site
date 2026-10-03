@@ -122,9 +122,9 @@ describe("Card", () => {
     expect(screen.queryByText("card-body")).not.toBeNull();
   });
 
-  it("exposes the title as a level-2 heading", () => {
-    render(<Card title="level-two" body="b" />);
-    expect(screen.queryByRole("heading", { level: 2, name: "level-two" })).not.toBeNull();
+  it("exposes the title as a level-3 heading (nested under a Section h2)", () => {
+    render(<Card title="nested-heading" body="b" />);
+    expect(screen.queryByRole("heading", { level: 3, name: "nested-heading" })).not.toBeNull();
   });
 
   it("requires both title and body", () => {
@@ -136,7 +136,7 @@ describe("Card", () => {
 
 describe("LinkList", () => {
   it("renders same-tab anchors with rel=noreferrer (no inert noopener)", () => {
-    render(
+    const { container } = render(
       <LinkList
         links={[
           { label: "Docs", href: "https://example.com/docs" },
@@ -144,6 +144,7 @@ describe("LinkList", () => {
         ]}
       />,
     );
+    expect(container.querySelector("ul")?.getAttribute("role")).toBe("list");
     const anchors = screen.getAllByRole("link");
     expect(anchors).toHaveLength(2);
     expect(anchors[0]?.getAttribute("href")).toBe("https://example.com/docs");
