@@ -1,7 +1,7 @@
 import Link from "next/link";
-import type { CSSProperties } from "react";
 import { Renderer } from "../lib/renderer";
 import type { UiDocument } from "../lib/schema";
+import { ThemeSurface } from "./theme-surface";
 
 /**
  * Shared server-side pieces for the pages that render stored documents
@@ -16,21 +16,6 @@ import type { UiDocument } from "../lib/schema";
  * yesterday's inner date.
  */
 
-/**
- * Theme colors as CSS custom properties consumed by `.theme-root` in
- * globals.css. The `as CSSProperties` cast is the one narrow, sanctioned
- * exception to the strict-cast rule: React's `CSSProperties` declares no
- * index signature for `--*` custom properties, and Next forbids mutating
- * `<html>` server-side, so the variables live on a wrapper div instead.
- */
-function themeVars(theme: UiDocument["theme"]): CSSProperties {
-  return {
-    "--bg": theme.bg,
-    "--fg": theme.fg,
-    "--accent": theme.accent,
-  } as CSSProperties;
-}
-
 type DocViewProps = {
   doc: UiDocument;
   /** Row/route date (YYYY-MM-DD) — the only date ever rendered. */
@@ -42,10 +27,13 @@ type DocViewProps = {
 };
 
 /**
- * Themed document view: wrapper div carrying `--bg/--fg/--accent`, the
- * font-family class derived from `theme.font`, the fixed corner badge
- * (date + `/archive` link), optional stale / "showing most recent" badges,
- * and the recursive renderer.
+ * Themed document view: the shared `ThemeSurface` wrapper (theme custom
+ * properties, font-family class, `data-*` hooks) carrying the fixed corner
+ * badge block (date + `/archive` link, optional stale / "showing most recent"
+ * badges) and the recursive renderer.
+ *
+ * `corner-badges` stays here, not in `ThemeSurface`, because it holds the
+ * `/archive` link — a preview has no use for it.
  */
 export function DocView({
   doc,
@@ -54,14 +42,7 @@ export function DocView({
   showingRecent = false,
 }: DocViewProps) {
   return (
-    <div
-      className={`theme-root font-${doc.theme.font}`}
-      data-testid="theme-root"
-      data-date={date}
-      data-font={doc.theme.font}
-      data-dark={String(doc.theme.dark)}
-      style={themeVars(doc.theme)}
-    >
+    <ThemeSurface doc={doc} date={date}>
       <div className="corner-badges" data-testid="corner-badges">
         {stale ? (
           <span className="badge badge-stale" data-testid="stale-badge">
@@ -83,7 +64,7 @@ export function DocView({
       <main className="doc-body">
         <Renderer node={doc.root} />
       </main>
-    </div>
+    </ThemeSurface>
   );
 }
 
