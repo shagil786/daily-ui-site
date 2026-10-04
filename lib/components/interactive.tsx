@@ -1,5 +1,27 @@
 "use client";
 
+import {
+  accordionPropsSchema,
+  canvasNoisePropsSchema,
+  clickerPropsSchema,
+  clockPropsSchema,
+  counterPropsSchema,
+  marqueePropsSchema,
+  pollPropsSchema,
+  progressBarPropsSchema,
+  todoPropsSchema,
+} from "../component-props";
+import type {
+  AccordionProps,
+  CanvasNoiseProps,
+  ClickerProps,
+  ClockProps,
+  CounterProps,
+  MarqueeProps,
+  PollProps,
+  ProgressBarProps,
+  TodoProps,
+} from "../component-props";
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 
@@ -9,15 +31,6 @@ import { z } from "zod";
  * CSS variables (`--fg`, `--accent`) with fallbacks; the only `<style>` tag is
  * Marquee's `@keyframes` — there are no external stylesheets.
  */
-
-export const counterPropsSchema = z
-  .object({
-    start: z.number().optional(),
-    label: z.string().optional(),
-  })
-  .describe("Numeric counter with an increment button. Props: start?: number; label?: string.");
-
-export type CounterProps = z.infer<typeof counterPropsSchema>;
 
 export function Counter({ start = 0, label }: CounterProps) {
   const [count, setCount] = useState(start);
@@ -58,14 +71,6 @@ export function Counter({ start = 0, label }: CounterProps) {
     </div>
   );
 }
-
-export const todoPropsSchema = z
-  .object({
-    title: z.string().optional(),
-  })
-  .describe("Todo list: type into the input and press Enter to append. Props: title?: string.");
-
-export type TodoProps = z.infer<typeof todoPropsSchema>;
 
 export function Todo({ title }: TodoProps) {
   const [items, setItems] = useState<string[]>([]);
@@ -154,15 +159,6 @@ export function Todo({ title }: TodoProps) {
   );
 }
 
-export const pollPropsSchema = z
-  .object({
-    question: z.string().optional(),
-    options: z.array(z.string()),
-  })
-  .describe("Single-choice poll; the picked option is marked. Props: question?: string; options: string[].");
-
-export type PollProps = z.infer<typeof pollPropsSchema>;
-
 export function Poll({ question, options }: PollProps) {
   const [selected, setSelected] = useState<number | null>(null);
   return (
@@ -208,14 +204,6 @@ export function Poll({ question, options }: PollProps) {
   );
 }
 
-export const clockPropsSchema = z
-  .object({
-    format: z.enum(["12h", "24h"]).optional(),
-  })
-  .describe('Live clock updated every second. Props: format?: "12h" | "24h" (default "24h").');
-
-export type ClockProps = z.infer<typeof clockPropsSchema>;
-
 /**
  * `toLocaleTimeString` can emit a narrow no-break space (U+202F) before
  * "AM/PM" depending on the ICU version; normalize so output is identical
@@ -254,14 +242,6 @@ export function Clock({ format = "24h" }: ClockProps) {
   );
 }
 
-export const clickerPropsSchema = z
-  .object({
-    label: z.string().optional(),
-  })
-  .describe("Button that counts how many times it was clicked. Props: label?: string.");
-
-export type ClickerProps = z.infer<typeof clickerPropsSchema>;
-
 export function Clicker({ label = "Click me" }: ClickerProps) {
   const [count, setCount] = useState(0);
   return (
@@ -296,15 +276,6 @@ export function Clicker({ label = "Click me" }: ClickerProps) {
     </div>
   );
 }
-
-export const marqueePropsSchema = z
-  .object({
-    text: z.string(),
-    speed: z.number().min(1).max(20).optional(),
-  })
-  .describe("Scrolling marquee that duplicates its text. Props: text: string; speed?: number (1-20).");
-
-export type MarqueeProps = z.infer<typeof marqueePropsSchema>;
 
 /** Keyframes for the scrolling row; injected per instance, never as an external file. */
 const MARQUEE_KEYFRAMES = `@keyframes marquee-scroll {
@@ -351,14 +322,6 @@ export function Marquee({ text, speed = 6 }: MarqueeProps) {
     </div>
   );
 }
-
-export const canvasNoisePropsSchema = z
-  .object({
-    opacity: z.number().min(0).max(1).optional(),
-  })
-  .describe("Animated canvas noise panel; falls back to a static gradient without a 2d context. Props: opacity?: number (0-1).");
-
-export type CanvasNoiseProps = z.infer<typeof canvasNoisePropsSchema>;
 
 /** jsdom returns `null` (or throws) from `getContext`; never let that escape. */
 function get2dContext(canvas: HTMLCanvasElement): CanvasRenderingContext2D | null {
@@ -433,14 +396,6 @@ export function CanvasNoise({ opacity = 0.4 }: CanvasNoiseProps) {
   );
 }
 
-export const progressBarPropsSchema = z
-  .object({
-    value: z.number().min(0).max(100),
-  })
-  .describe("Progress bar filled to a percentage. Props: value: number (0-100).");
-
-export type ProgressBarProps = z.infer<typeof progressBarPropsSchema>;
-
 export function ProgressBar({ value }: ProgressBarProps) {
   return (
     <div
@@ -468,14 +423,6 @@ export function ProgressBar({ value }: ProgressBarProps) {
     </div>
   );
 }
-
-export const accordionPropsSchema = z
-  .object({
-    items: z.array(z.object({ title: z.string(), body: z.string() })),
-  })
-  .describe("Accordion where clicking a header reveals its body. Props: items: { title: string; body: string }[].");
-
-export type AccordionProps = z.infer<typeof accordionPropsSchema>;
 
 export function Accordion({ items }: AccordionProps) {
   const [openIndex, setOpenIndex] = useState<number | null>(null);

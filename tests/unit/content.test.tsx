@@ -1,22 +1,8 @@
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  ALLOWED_IMAGE_HOSTS,
-  BeforeAfter,
-  Card,
-  Hero,
-  ImageGallery,
-  LinkList,
-  TerminalSim,
-  Text,
-  beforeAfterPropsSchema,
-  cardPropsSchema,
-  heroPropsSchema,
-  imageGalleryPropsSchema,
-  linkListPropsSchema,
-  terminalSimPropsSchema,
-  textPropsSchema,
-} from "../../lib/components/content";
+import { BeforeAfter, Card, Hero, ImageGallery, LinkList, TerminalSim, Text } from "../../lib/components/content";
+import { ALLOWED_IMAGE_HOSTS } from "../../lib/component-props";
+import { beforeAfterPropsSchema, cardPropsSchema, heroPropsSchema, imageGalleryPropsSchema, linkListPropsSchema, terminalSimPropsSchema, textPropsSchema } from "../../lib/component-props";
 import { getComponent } from "../../lib/registry";
 
 afterEach(cleanup);

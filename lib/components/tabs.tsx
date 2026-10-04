@@ -1,7 +1,7 @@
 "use client";
 
 import { Children, useState, type CSSProperties, type ReactNode } from "react";
-import type { TabsProps } from "./layout";
+import type { TabsProps } from "../component-props";
 
 /**
  * Tabbed panels — a CLIENT component, deliberately kept out of

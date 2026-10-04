@@ -1,57 +1,34 @@
 import type { ComponentType } from "react";
 import { z } from "zod";
+import { Center, Grid, Section, SplitPane, Stack, Timeline } from "./components/layout";
+import { Tabs } from "./components/tabs";
 import {
-  Center,
-  Grid,
-  Section,
-  SplitPane,
-  Stack,
-  Timeline,
+  accordionPropsSchema,
+  beforeAfterPropsSchema,
+  canvasNoisePropsSchema,
+  cardPropsSchema,
   centerPropsSchema,
+  clickerPropsSchema,
+  clockPropsSchema,
+  counterPropsSchema,
   gridPropsSchema,
+  heroPropsSchema,
+  imageGalleryPropsSchema,
+  linkListPropsSchema,
+  marqueePropsSchema,
+  pollPropsSchema,
+  progressBarPropsSchema,
   sectionPropsSchema,
   splitPanePropsSchema,
   stackPropsSchema,
   tabsPropsSchema,
-  timelinePropsSchema,
-} from "./components/layout";
-import { Tabs } from "./components/tabs";
-import {
-  BeforeAfter,
-  Card,
-  Hero,
-  ImageGallery,
-  LinkList,
-  TerminalSim,
-  Text,
-  beforeAfterPropsSchema,
-  cardPropsSchema,
-  heroPropsSchema,
-  imageGalleryPropsSchema,
-  linkListPropsSchema,
   terminalSimPropsSchema,
   textPropsSchema,
-} from "./components/content";
-import {
-  Accordion,
-  CanvasNoise,
-  Clicker,
-  Clock,
-  Counter,
-  Marquee,
-  Poll,
-  ProgressBar,
-  Todo,
-  accordionPropsSchema,
-  canvasNoisePropsSchema,
-  clickerPropsSchema,
-  clockPropsSchema,
-  counterPropsSchema,
-  marqueePropsSchema,
-  pollPropsSchema,
-  progressBarPropsSchema,
+  timelinePropsSchema,
   todoPropsSchema,
-} from "./components/interactive";
+} from "./component-props";
+import { BeforeAfter, Card, Hero, ImageGallery, LinkList, TerminalSim, Text } from "./components/content";
+import { Accordion, CanvasNoise, Clicker, Clock, Counter, Marquee, Poll, ProgressBar, Todo } from "./components/interactive";
 
 export type ComponentEntry = {
   propsSchema: z.ZodTypeAny;

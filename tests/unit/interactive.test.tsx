@@ -1,25 +1,7 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import {
-  Accordion,
-  CanvasNoise,
-  Clicker,
-  Clock,
-  Counter,
-  Marquee,
-  Poll,
-  ProgressBar,
-  Todo,
-  accordionPropsSchema,
-  canvasNoisePropsSchema,
-  clickerPropsSchema,
-  clockPropsSchema,
-  counterPropsSchema,
-  marqueePropsSchema,
-  pollPropsSchema,
-  progressBarPropsSchema,
-  todoPropsSchema,
-} from "../../lib/components/interactive";
+import { Accordion, CanvasNoise, Clicker, Clock, Counter, Marquee, Poll, ProgressBar, Todo } from "../../lib/components/interactive";
+import { accordionPropsSchema, canvasNoisePropsSchema, clickerPropsSchema, clockPropsSchema, counterPropsSchema, marqueePropsSchema, pollPropsSchema, progressBarPropsSchema, todoPropsSchema } from "../../lib/component-props";
 import { getComponent, inventoryForPrompt } from "../../lib/registry";
 
 afterEach(() => {
