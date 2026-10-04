@@ -135,49 +135,11 @@ export const tabsPropsSchema = z
   .object({
     tabs: z.array(z.object({ label: z.string() })),
   })
-  .describe("Tab labels as a segmented control over a single children region. Props: tabs: { label: string }[].");
+  .describe(
+    "Tabbed panels. Props: tabs: { label: string }[]. Supply EXACTLY ONE child per tab, in the same order — child 1 fills the first tab, child 2 the second, and so on. Each tab shows only its own child, so a three-tab UI needs three children.",
+  );
 
 export type TabsProps = z.infer<typeof tabsPropsSchema> & { children?: ReactNode };
-
-export function Tabs({ tabs, children }: TabsProps) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-      <div
-        style={{
-          display: "inline-flex",
-          alignSelf: "flex-start",
-          gap: 4,
-          padding: 4,
-          borderRadius: 8,
-          border: "1px solid rgba(127, 127, 127, 0.35)",
-          background: "rgba(127, 127, 127, 0.08)",
-        }}
-      >
-        {tabs.map((tab, index) => (
-          <span
-            key={`${tab.label}-${index}`}
-            data-active={index === 0 ? "true" : "false"}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 6,
-              fontSize: "14px",
-              fontWeight: 600,
-              // White on a possibly-light --accent: a soft dark shadow keeps
-              // the active label legible when the accent is pale (ruling 7).
-              color: index === 0 ? "#ffffff" : "var(--fg, #111111)",
-              background: index === 0 ? "var(--accent, #2563eb)" : "transparent",
-              textShadow:
-                index === 0 ? "0 1px 2px rgba(0, 0, 0, 0.6)" : undefined,
-            }}
-          >
-            {tab.label}
-          </span>
-        ))}
-      </div>
-      <div>{children}</div>
-    </div>
-  );
-}
 
 export const timelinePropsSchema = z
   .object({

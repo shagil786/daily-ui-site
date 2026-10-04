@@ -6,7 +6,6 @@ import {
   Section,
   SplitPane,
   Stack,
-  Tabs,
   Timeline,
   centerPropsSchema,
   gridPropsSchema,
@@ -16,6 +15,7 @@ import {
   tabsPropsSchema,
   timelinePropsSchema,
 } from "./components/layout";
+import { Tabs } from "./components/tabs";
 import {
   BeforeAfter,
   Card,

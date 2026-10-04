@@ -1,6 +1,7 @@
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
-import { Center, Grid, Section, SplitPane, Stack, Tabs, Timeline } from "../../lib/components/layout";
+import { Center, Grid, Section, SplitPane, Stack, Timeline } from "../../lib/components/layout";
+import { Tabs } from "../../lib/components/tabs";
 
 afterEach(cleanup);
 
@@ -131,6 +132,81 @@ describe("Tabs", () => {
     expect(segments).toHaveLength(2);
     expect(segments[0]?.getAttribute("data-active")).toBe("true");
     expect(segments[1]?.getAttribute("data-active")).toBe("false");
+  });
+
+  // Real switching: one child per tab, which is what the prompt now asks for.
+  it("switches panels when one child is supplied per tab", () => {
+    render(
+      <Tabs
+        tabs={[
+          { label: "Alpha" },
+          { label: "Beta" },
+        ]}
+      >
+        <p>alpha-panel</p>
+        <p>beta-panel</p>
+      </Tabs>,
+    );
+
+    expect(screen.queryByText("alpha-panel")).not.toBeNull();
+    expect(screen.queryByText("beta-panel")).toBeNull();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Beta" }));
+
+    expect(screen.queryByText("beta-panel")).not.toBeNull();
+    expect(screen.queryByText("alpha-panel")).toBeNull();
+  });
+
+  it("exposes tab semantics and moves aria-selected with the active tab", () => {
+    render(
+      <Tabs tabs={[{ label: "Alpha" }, { label: "Beta" }]}>
+        <p>alpha-panel</p>
+        <p>beta-panel</p>
+      </Tabs>,
+    );
+
+    expect(screen.getByRole("tablist")).not.toBeNull();
+    const [first, second] = screen.getAllByRole("tab");
+    expect(first?.getAttribute("aria-selected")).toBe("true");
+    expect(second?.getAttribute("aria-selected")).toBe("false");
+    expect(screen.getByRole("tabpanel")).not.toBeNull();
+
+    fireEvent.click(second!);
+
+    expect(first?.getAttribute("aria-selected")).toBe("false");
+    expect(second?.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("moves between tabs with the arrow keys", () => {
+    render(
+      <Tabs tabs={[{ label: "Alpha" }, { label: "Beta" }]}>
+        <p>alpha-panel</p>
+        <p>beta-panel</p>
+      </Tabs>,
+    );
+
+    const [first, second] = screen.getAllByRole("tab");
+    first?.focus();
+    fireEvent.keyDown(first!, { key: "ArrowRight" });
+
+    expect(second?.getAttribute("aria-selected")).toBe("true");
+    expect(second).toEqual(document.activeElement);
+  });
+
+  // The fallback matters: documents already in the archive supply fewer
+  // children than tabs, and must keep rendering every panel.
+  it("keeps the static control when the child count does not match the tab count", () => {
+    render(
+      <Tabs tabs={[{ label: "Alpha" }, { label: "Beta" }, { label: "Gamma" }]}>
+        <p>shared-panel</p>
+      </Tabs>,
+    );
+
+    expect(screen.queryByRole("tab")).toBeNull(); // not interactive
+    expect(screen.queryByText("shared-panel")).not.toBeNull();
+    const segments = document.querySelectorAll("[data-active]");
+    expect(segments).toHaveLength(3);
+    expect(segments[0]?.getAttribute("data-active")).toBe("true");
   });
 });
 
